@@ -388,7 +388,7 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
     isticher.perfs.append(perf)
 
     for i in range(settings.num_workers):
-        worker = _spawn_worker(ms_per_frame, i)
+        worker = _spawn_worker(frame_gen, ms_per_frame, i)
         isticher.register_queue(worker.img_queue)
         workers.append(worker)
 
@@ -551,7 +551,7 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
                     workers.append(unpaused)
                     logger.debug('Unpaused a worker %s', reason_str)
                 else:
-                    worker = _spawn_worker(ms_per_frame, worker_counter)
+                    worker = _spawn_worker(frame_gen, ms_per_frame, worker_counter)
                     isticher.register_queue(worker.img_queue)
                     workers.append(worker)
                     worker_counter += 1

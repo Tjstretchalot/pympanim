@@ -276,7 +276,7 @@ class ImageSticher:
         recv = self.check_queues()
         proc = 1 if self.process_frame() else 0
         for perf in self.perfs:
-            perf.post_work(recv, proc)
+            perf.post_work(recv, proc, len(self.ooo_frames))
         return recv > 0 or proc > 0
 
     def finish(self):

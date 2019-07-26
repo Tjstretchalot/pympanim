@@ -11,7 +11,7 @@ setuptools.setup(
     license='CC0',
     keywords='pympanim animations video mp4',
     url='https://github.com/tjstretchalot/pympanim',
-    packages=['pytypeutils'],
+    packages=['pympanim'],
     long_description=open(
         os.path.join(os.path.dirname(__file__), 'README.md')).read(),
     long_description_content_type='text/markdown',

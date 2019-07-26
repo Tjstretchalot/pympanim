@@ -163,7 +163,7 @@ class ImageSticher:
         wo_ext, ext = os.path.splitext(outfile)
         if ext == '':
             outfile = wo_ext + '.mp4'
-        elif ext != 'mp4':
+        elif ext != '.mp4':
             raise NotImplementedError(f'only mp4 encoding is supported, but got {ext}')
 
         if os.path.exists(outfile):

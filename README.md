@@ -51,3 +51,13 @@ This depends on ffmpeg being installed. It can be installed
 automatically installed by pip.
 
 ## Usage
+
+## Examples
+
+The examples/ folder has the sourcecode for the following examples:
+
+```
+python3 -m examples.redsquare
+```
+
+Produces

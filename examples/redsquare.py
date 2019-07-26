@@ -33,16 +33,19 @@ class RedSquareCrosses(fg.FrameGenerator):
         img.paste(box, (box_x, box_y))
         return img
 
-def main():
+def _main():
     os.makedirs('out/examples', exist_ok=True)
 
     pmaw.produce(
         fg.FluentFG(RedSquareCrosses((640, 480)))
-            .time_rescale(0.0002) # 5 seconds
-            .dilate(easing.smootheststep)
-            .build(),
+        .time_rescale(0.0002) # 5 seconds
+        .dilate(easing.smootheststep)
+        .build(),
         30,
         100,
         -1,
         'out/examples/redsquare.mp4'
     )
+
+if __name__ == '__main__':
+    _main()

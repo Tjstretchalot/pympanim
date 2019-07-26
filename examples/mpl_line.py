@@ -68,7 +68,7 @@ class CosRenderer(acts.ActRenderer):
         fig.savefig(hndl, format='rgba', dpi=self.dpi)
         res = hndl.getvalue()
 
-        fig.close()
+        plt.close(fig)
         return res
 
 class SweepFrequencyScene(acts.Scene):

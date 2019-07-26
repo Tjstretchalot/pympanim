@@ -44,5 +44,7 @@ def find_child(ends_arr: typing.List[float],
         if time < etime:
             return i, etime - last
         last = etime
+    if time == last:
+        return len(ends_arr) - 1, 0
     raise ValueError(f'time={time}  not in [0, {ends_arr[-1]}]'
                         + f' or {ends_arr} unsorted')

@@ -104,16 +104,16 @@ def _main():
                 .then(
                     acts.FluentScene(scene)
                     .dilate(pytweening.easeInOutCirc)
-                    .time_rescale(1 / 10000)
                     .crop(0, 0.1, 'ms')
+                    .time_rescale(1 / 10000)
                     .build()
                 )
                 .then(
                     acts.FluentScene(scene)
                     .reverse()
                     .dilate(pytweening.easeInOutCirc)
-                    .time_rescale(1 / 10000)
                     .crop(0, 0.1, 'ms')
+                    .time_rescale(1 / 10000)
                     .build()
                 )
                 .build()

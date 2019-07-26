@@ -63,6 +63,9 @@ class CosRenderer(acts.ActRenderer):
         ax.set_title(f'Frequency={act_state.frequency:.3f}')
         ax.plot(act_state.indeps, deps, '-r', linewidth=2)
 
+        ax.set_xlim(-1, 1)
+        ax.set_ylim(-1.1, 1.1)
+
         hndl = io.BytesIO()
         fig.set_size_inches(*self.frame_size_inches)
         fig.savefig(hndl, format='rgba', dpi=self.dpi)

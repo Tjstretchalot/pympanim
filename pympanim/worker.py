@@ -326,14 +326,14 @@ class PerformanceSettings:
         self.frame_batch_min = frame_batch_min
         self.frame_batch_max = frame_batch_max
 
-def _spawn_worker(ms_per_frame, i):
+def _spawn_worker(frame_gen, ms_per_frame, i):
     img_queue = ZeroMQQueue.create_recieve()
     send_queue = ZeroMQQueue.create_send()
     ack_queue = ZeroMQQueue.create_recieve()
     proc = Process(
         target=frame_worker_target,
-        args=(img_queue.serd(), send_queue.serd(), ack_queue.serd(), ms_per_frame,
-              f'worker_{i}_error.log')
+        args=(img_queue.serd(), send_queue.serd(), ack_queue.serd(), frame_gen,
+              ms_per_frame, f'worker_{i}_error.log')
     )
     proc.start()
     return FrameWorkerConnection(proc, img_queue, send_queue, ack_queue)

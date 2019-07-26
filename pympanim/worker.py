@@ -103,6 +103,7 @@ class FrameWorkerConnection:
         self.send_queue = send_queue
         self.ack_queue = ack_queue
         self.awaiting_sync = False
+        self.last_frame = -1
 
     def start_sync(self):
         """Starts the syncing process"""
@@ -391,7 +392,7 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
         isticher.register_queue(worker.img_queue)
         workers.append(worker)
 
-    worker_counter = settings.num_worker
+    worker_counter = settings.num_workers
 
     for worker in workers:
         worker.start_sync()

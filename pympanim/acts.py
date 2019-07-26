@@ -415,6 +415,7 @@ class FluentScene:
         """Has the given scene follow the currently described scene"""
         tus.check(scene=(scene, Scene))
         self.followed_by.append(scene)
+        return self
 
     def reverse(self) -> 'FluentScene':
         """Causes the current segment to be played in reverse."""

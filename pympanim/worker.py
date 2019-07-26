@@ -462,6 +462,9 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
         for i in range(settings.frame_batch_amount * len(workers)):
             isticher.do_work()
 
+        while len(isticher.ooo_frames) > settings.ooo_cap:
+            isticher.do_work()
+
         for i in range(len(stopping_workers) - 1, 0, -1):
             worker = stopping_workers[i]
             if worker.check_finish() and isticher.next_frame > worker.last_frame:

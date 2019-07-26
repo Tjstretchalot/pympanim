@@ -89,32 +89,34 @@ def _main():
     pmaw.produce(
         acts.Act(
             act_state, renderer,
-            acts.FluentScene(scene)
-            .time_rescale(1 / 5000)
-            .then(
+            [
                 acts.FluentScene(scene)
-                .reverse()
-                .dilate(pytweening.easeOutCubic)
-                .time_rescale(1 / 3000)
+                .time_rescale(1 / 5000)
+                .then(
+                    acts.FluentScene(scene)
+                    .reverse()
+                    .dilate(pytweening.easeOutCubic)
+                    .time_rescale(1 / 3000)
+                    .build()
+                )
+                .then(
+                    acts.FluentScene(scene)
+                    .dilate(pytweening.easeInOutCirc)
+                    .crop(0, 0.1, 'ms')
+                    .time_rescale(1 / 1000)
+                    .build()
+                )
+                .then(
+                    acts.FluentScene(scene)
+                    .reverse()
+                    .dilate(pytweening.easeInOutCirc)
+                    .crop(0, 0.1, 'ms')
+                    .reverse()
+                    .time_rescale(1 / 1000)
+                    .build()
+                )
                 .build()
-            )
-            .then(
-                acts.FluentScene(scene)
-                .dilate(pytweening.easeInOutCirc)
-                .crop(0, 0.1, 'ms')
-                .time_rescale(1 / 1000)
-                .build()
-            )
-            .then(
-                acts.FluentScene(scene)
-                .reverse()
-                .dilate(pytweening.easeInOutCirc)
-                .crop(0, 0.1, 'ms')
-                .reverse()
-                .time_rescale(1 / 1000)
-                .build()
-            )
-            .build()
+            ]
         ),
         60,
         100,

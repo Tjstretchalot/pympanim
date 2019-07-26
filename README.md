@@ -60,4 +60,6 @@ The examples/ folder has the sourcecode for the following examples:
 python3 -m examples.redsquare
 ```
 
-Produces
+Produces https://gfycat.com/digitalmaleflyingfish
+
+

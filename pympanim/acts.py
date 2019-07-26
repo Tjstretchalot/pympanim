@@ -261,6 +261,32 @@ class TimeRescaleScene(Scene):
     def exit(self, act_state: ActState):
         self.child.exit(act_state)
 
+class TimeReverseScene(Scene):
+    """Reverses time for the given child scene.
+
+    Attributes:
+        child (Scene): the actual child scene
+    """
+    def __init__(self, child: Scene) -> None:
+        tus.check(child=(child, Scene))
+        self.child = child
+
+    @property
+    def duration(self):
+        return self.child.duration
+
+    def start(self, act_state: ActState):
+        self.child.start(act_state)
+
+    def enter(self, act_state: ActState):
+        self.child.enter(act_state)
+
+    def apply(self, act_state: ActState, time_ms: float):
+        self.child.apply(act_state, self.duration - time_ms)
+
+    def exit(self, act_state: ActState):
+        self.child.exit(act_state)
+
 class TimeDilateScene(Scene):
     """Describes a scene which is another scene played for the same duration,
     but time moves at a different rate each point according to a specific
@@ -389,6 +415,10 @@ class FluentScene:
         """Has the given scene follow the currently described scene"""
         tus.check(scene=(scene, Scene))
         self.followed_by.append(scene)
+
+    def reverse(self) -> 'FluentScene':
+        """Causes the current segment to be played in reverse."""
+        return self.apply(TimeReverseScene)
 
     def crop(self, start: float, end: float, unit: str) -> 'FluentScene':
         """Crops this scene to start and end in the specified times relative

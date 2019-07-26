@@ -6,6 +6,7 @@ import time
 import queue
 import typing
 import traceback
+import psutil
 import logging
 from multiprocessing import Process
 import pympanim.frame_gen as fg
@@ -191,6 +192,8 @@ class PerformanceSettings:
             lasts. Must not be 0.
         perf_delay (float): the number of seconds before we expect a parameter
             change to have some effect on performance. Can be 0
+        max_workers (int): the maximum number of threads generating images,
+            defaults to 2/3 number of physical cores
         spawn_worker_threshold_low (float): the percentage of frames received
             that are processed by the image thread in a given amount of time
             that triggers spawning another worker when we have have appreciably
@@ -262,6 +265,7 @@ class PerformanceSettings:
             frame_batch_amount=2,
             window_size=15.0,
             perf_delay=2.5,
+            max_workers=None,
             spawn_worker_threshold_low=0.8,
             spawn_worker_threshold_high=1.2,
             kill_worker_threshold_low=0.5,
@@ -279,8 +283,12 @@ class PerformanceSettings:
             frame_batch_max=10
         ):
         if num_workers is None:
-            import psutil
             num_workers = psutil.cpu_count(logical=False) // 3
+        if max_workers is None:
+            max_workers = max(
+                num_workers,
+                (psutil.cpu_count(logical=False) // 3) * 2
+            )
 
         tus.check(
             frames_per_sync=(frames_per_sync, int),
@@ -288,6 +296,7 @@ class PerformanceSettings:
             frame_batch_amount=(frame_batch_amount, int),
             window_size=(window_size, float),
             perf_delay=(perf_delay, float),
+            max_workers=(max_workers, int),
             spawn_worker_threshold_low=(spawn_worker_threshold_low, float),
             spawn_worker_threshold_high=(spawn_worker_threshold_high, float),
             kill_worker_threshold_low=(kill_worker_threshold_low, float),
@@ -310,6 +319,7 @@ class PerformanceSettings:
         self.frame_batch_amount = frame_batch_amount
         self.window_size = window_size
         self.perf_delay = perf_delay
+        self.max_workers = max_workers
         self.spawn_worker_threshold_low = spawn_worker_threshold_low
         self.spawn_worker_threshold_high = spawn_worker_threshold_high
         self.kill_worker_threshold_low = kill_worker_threshold_low
@@ -545,7 +555,9 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
                       settings.kill_worker_threshold_high)
             )
 
-            if perc_rec_proc > threshold_spawn:
+            if (perc_rec_proc > threshold_spawn
+                    and settings.num_workers < settings.max_workers):
+                settings.num_workers += 1
                 if settings.frames_per_sync > settings.min_frames_per_sync:
                     settings.frames_per_sync -= 1
                 if len(paused_workers) > 1:
@@ -558,7 +570,9 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
                     workers.append(worker)
                     worker_counter += 1
                     logger.debug('Spawned a worker %s', reason_str)
-            elif perc_rec_proc < threshold_kill:
+            elif (perc_rec_proc < threshold_kill
+                    and settings.num_workers > 1):
+                settings.num_workers -= 1
                 if settings.frames_per_sync > settings.min_frames_per_sync:
                     settings.frames_per_sync -= 1
                 settings.frame_per_sync -= 1

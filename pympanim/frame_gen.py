@@ -345,7 +345,7 @@ class CroppedFrameGenerator(FrameGenerator):
         self.child.start()
 
     def _child_time(self, time_ms):
-        return time_ms * (self.duration / self.child.duration) + self.crop_start
+        return time_ms * (self.child.duration / self.duration) + self.crop_start
 
     def generate_at(self, time_ms: float):
         return self.child.generate_at(self._child_time(time_ms))

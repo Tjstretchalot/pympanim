@@ -382,7 +382,7 @@ class CroppedScene(Scene):
         self.child.enter(act_state)
 
     def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
-        newtime = time_ms * (self.duration / self.child.duration) + self.crop_start
+        newtime = time_ms * (self.child.duration / self.duration) + self.crop_start
         if dbg:
             print(f'crop at {time_ms} applying child at {newtime}')
         self.child.apply(act_state, newtime, dbg)

@@ -121,7 +121,7 @@ def _main():
         60,
         100,
         -1,
-        'out/examples/mpl_line.py'
+        'out/examples/mpl_line.mp4'
     )
 
 if __name__ == '__main__':

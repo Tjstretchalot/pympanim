@@ -121,10 +121,10 @@ def _main():
 
     pmaw.produce(
         acts.Act(act_state, renderer, [_scene()]),
-        60,
-        100,
-        -1,
-        'out/examples/mpl_line.mp4'
+        fps=60,
+        dpi=100,
+        bitrate=-1,
+        outfile='out/examples/mpl_line.mp4'
     )
 
 if __name__ == '__main__':

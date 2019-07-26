@@ -8,6 +8,7 @@ import pympanim.easing as easing
 import os
 
 class RedSquareCrosses(fg.FrameGenerator):
+    """Moves a red square from the left to the right side in unit time"""
     def __init__(self, frame_size: typing.Tuple[int, int]):
         self._frame_size = frame_size
 

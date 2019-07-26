@@ -33,7 +33,7 @@ class ActRenderer:
         raise NotImplementedError
 
     def render_pil(self, act_state: ActState) -> PIL.Image:
-        """Renders teh given act state to a pillow image. If there are nested
+        """Renders the given act state to a pillow image. If there are nested
         renderers which all use pillow images it will typically faster to use
         this chain then constantly converting to/from bytes. By default, this
         just wraps the result from render.

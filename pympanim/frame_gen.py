@@ -260,6 +260,40 @@ class TimeDilateFrameGenerator(FrameGenerator):
     def finish(self):
         self.child.finish()
 
+class TimeReverseFrameGenerator(FrameGenerator):
+    """Takes another frame generator and plays it in reverse.
+
+    Attributes:
+        child (FrameGenerator): the frame generator to play in reverse
+    """
+    def __init__(self, child: FrameGenerator):
+        tus.check(child=(child, FrameGenerator))
+        self.child = child
+
+    @property
+    def duration(self):
+        return self.child.duration
+
+    @property
+    def frame_size(self):
+        return self.child.frame_size
+
+    def start(self):
+        self.child.start()
+
+    def _child_time(self, time_ms: float) -> float:
+        return self.duration - time_ms
+
+    def generate_at(self, time_ms: float):
+        return self.child.generate_at(self._child_time(time_ms))
+
+    def generate_at_pil(self, time_ms: float):
+        return self.child.generate_at_pil(self._child_time(time_ms))
+
+    def finish(self):
+        self.child.finish()
+
+
 class RescaleFrameGenerator(FrameGenerator):
     """Takes another frame generator and rescales the image to the given
     size.
@@ -507,6 +541,10 @@ class FluentFG:
     def frame_size(self):
         """Returns the frame size of the current video"""
         return self.base.frame_size
+
+    def reverse(self) -> 'FluentFG':
+        """Takes the current video and reverses time"""
+        return self.apply(TimeReverseFrameGenerator)
 
     def crop(self, start: float, end: float, unit: str) -> 'FluentFG':
         """Crops this to be in the given subsection of time, where time

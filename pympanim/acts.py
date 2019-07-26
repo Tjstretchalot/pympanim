@@ -62,7 +62,7 @@ class Scene:
         """
         pass
 
-    def apply(self, act_state: ActState, time_ms: float):
+    def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
         """Must update the state such that it will render the frame at the
         given time relative to this scene."""
         raise NotImplementedError
@@ -204,11 +204,14 @@ class SceneSequenceScene(Scene):
         for scene in self.scenes:
             scene.start(act_state)
 
-    def apply(self, act_state: ActState, time_ms: float):
+    def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
         ind, reltime = mutils.find_child(self.scenes_end_at, time_ms,
                                          self._scene_hint)
         self._scene_hint = ind
         scene = self.scenes[ind]
+        if dbg:
+            print(f'sequence at time {time_ms} applying child {ind} '
+                  + f'at time {reltime}')
 
         if ind != self._last_scene:
             if self._last_scene:
@@ -216,7 +219,7 @@ class SceneSequenceScene(Scene):
             scene.enter(act_state)
             self._last_scene = ind
 
-        scene.apply(act_state, reltime)
+        scene.apply(act_state, reltime, dbg)
 
 
     def exit(self, act_state: ActState):
@@ -255,8 +258,11 @@ class TimeRescaleScene(Scene):
     def enter(self, act_state: ActState):
         self.child.enter(act_state)
 
-    def apply(self, act_state: ActState, time_ms: float):
-        self.child.apply(act_state, time_ms * self.playback_rate)
+    def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
+        newtime = time_ms * self.playback_rate
+        if dbg:
+            print(f'time rescale at {time_ms} applying child at {newtime}')
+        self.child.apply(act_state, newtime, dbg)
 
     def exit(self, act_state: ActState):
         self.child.exit(act_state)
@@ -281,8 +287,11 @@ class TimeReverseScene(Scene):
     def enter(self, act_state: ActState):
         self.child.enter(act_state)
 
-    def apply(self, act_state: ActState, time_ms: float):
-        self.child.apply(act_state, self.duration - time_ms)
+    def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
+        newtime = self.duration - time_ms
+        if dbg:
+            print(f'time reverse at {time_ms} applying child at {newtime}')
+        self.child.apply(act_state, newtime, dbg)
 
     def exit(self, act_state: ActState):
         self.child.exit(act_state)
@@ -317,11 +326,14 @@ class TimeDilateScene(Scene):
     def enter(self, act_state: ActState):
         self.child.enter(act_state)
 
-    def apply(self, act_state: ActState, time_ms: float):
+    def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
         perc_time = time_ms / self.duration
         resc_perc_time = self.dilator(perc_time, **self.dilator_kwargs)
         resc_time = self.duration * resc_perc_time
-        self.child.apply(act_state, resc_time)
+        if dbg:
+            print(f'time dilate at {time_ms} (perc: {perc_time}) applying '
+                  + f' child at {resc_time} (perc: {resc_perc_time})')
+        self.child.apply(act_state, resc_time, dbg)
 
     def exit(self, act_state: ActState):
         self.child.exit(act_state)
@@ -369,8 +381,11 @@ class CroppedScene(Scene):
     def enter(self, act_state: ActState):
         self.child.enter(act_state)
 
-    def apply(self, act_state: ActState, time_ms: float):
-        self.child.apply(act_state, time_ms + self.crop_start)
+    def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
+        newtime = time_ms + self.crop_start
+        if dbg:
+            print(f'crop at {time_ms} applying child at {newtime}')
+        self.child.apply(act_state, newtime, dbg)
 
     def exit(self, act_state: ActState):
         self.child.exit(act_state)

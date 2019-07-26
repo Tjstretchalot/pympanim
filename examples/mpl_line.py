@@ -77,7 +77,9 @@ class SweepFrequencyScene(acts.Scene):
     def duration(self):
         return 1
 
-    def apply(self, act_state: CosData, time_ms: float):
+    def apply(self, act_state: CosData, time_ms: float, dbg: bool = False):
+        if dbg:
+            print(f'sweep frequency at {time_ms}')
         act_state.frequency = 1 + time_ms*9
 
 def _main():
@@ -126,8 +128,3 @@ def _main():
 
 if __name__ == '__main__':
     _main()
-
-
-
-
-

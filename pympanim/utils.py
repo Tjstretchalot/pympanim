@@ -42,7 +42,7 @@ def find_child(ends_arr: typing.List[float],
     last = 0
     for i, etime in enumerate(ends_arr):
         if time < etime:
-            return i, etime - last
+            return i, time - last
         last = etime
     if time == last:
         return len(ends_arr) - 1, 0

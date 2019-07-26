@@ -28,8 +28,8 @@ class RedSquareCrosses(fg.FrameGenerator):
         box_x = int(time_ms * (self._frame_size[0] - box_size))
         box_y = int((self._frame_size[1] / 2) - (box_size / 2))
 
-        img = PIL.Image.new('RGBA', self._frame_size, (0, 0, 0, 1))
-        box = PIL.Image.new('RGBA', (box_size, box_size), (1, 0, 0, 1))
+        img = PIL.Image.new('RGBA', self._frame_size, 'black')
+        box = PIL.Image.new('RGBA', (box_size, box_size), 'red')
         img.paste(box, (box_x, box_y))
         return img
 

@@ -1,11 +1,5 @@
 # Multiprocessed Animations
 
-## Warning
-
-This is currently in pre-release. During this time it may not be available on
-PIP and documentation may not be complete or accurate. Development will move
-quickly.
-
 ## Summary
 
 This library helps building movies in python from images. Specifically, it

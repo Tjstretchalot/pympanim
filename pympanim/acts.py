@@ -468,5 +468,7 @@ class FluentScene:
     def build(self):
         """Builds the actual scene that has been created by this factory"""
         if self.followed_by:
-            return SceneSequenceScene([self.base].extend(self.followed_by))
+            scenes = [self.base]
+            scenes.extend(self.followed_by)
+            return SceneSequenceScene(scenes)
         return self.base

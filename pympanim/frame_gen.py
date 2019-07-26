@@ -598,7 +598,7 @@ class FluentFG:
         """Returns the frame generator that was described using a fluent api
         """
         if self.followed_by:
-            return SequenceFrameGenerator(
-                [self.base].extend(self.followed_by)
-            )
+            scenes = [self.base]
+            scenes.extend(self.followed_by)
+            return SequenceFrameGenerator(scenes)
         return self.base

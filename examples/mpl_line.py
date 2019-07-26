@@ -2,8 +2,8 @@
 cosine plot.
 """
 
+import os
 import pympanim.worker as pmaw
-import pympanim.easing as pmaease
 import pympanim.acts as acts
 import pytweening
 import pytypeutils as tus
@@ -20,7 +20,7 @@ class CosData(acts.ActState):
         indeps (ndarray[float]): the independent values to show
     """
     def __init__(self, frequency: float, indeps: np.ndarray):
-        tus.check(frequency=(frequency, float))
+        tus.check(frequency=(frequency, (int, float)))
         tus.check_ndarrays(
             indeps=(indeps, ('n_samples',), ('float32', 'float64'))
         )
@@ -81,6 +81,7 @@ class SweepFrequencyScene(acts.Scene):
         act_state.frequency = 1 + time_ms*9
 
 def _main():
+    os.makedirs('out/examples', exist_ok=True)
     act_state = CosData(1, np.linspace(-1, 1, 100))
     renderer = CosRenderer((19.2, 10.8), 100)
     scene = SweepFrequencyScene()

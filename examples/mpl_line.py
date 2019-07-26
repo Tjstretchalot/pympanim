@@ -61,7 +61,7 @@ class CosRenderer(acts.ActRenderer):
 
         fig, ax = plt.subplots()
         ax.set_title(f'Frequency={act_state.frequency:.3f}')
-        ax.plot(act_state.indeps, deps, linewidth=2, fmt='-r')
+        ax.plot(act_state.indeps, deps, '-r', linewidth=2)
 
         hndl = io.BytesIO()
         fig.set_size_inches(*self.frame_size_inches)

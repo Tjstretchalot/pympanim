@@ -41,7 +41,7 @@ def _main():
         .time_rescale(0.0002) # 5 seconds
         .dilate(easing.smootheststep)
         .build(),
-        30,
+        60,
         100,
         -1,
         'out/examples/redsquare.mp4'

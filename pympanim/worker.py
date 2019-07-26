@@ -379,7 +379,7 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
     ms_per_frame = 1000 / fps
     num_frames = int(frame_gen.duration / ms_per_frame)
     logger.info('Settings: %0.1f seconds; %d frames at %d fps with %d workers...',
-                frame_gen.duration * 1000, num_frames, settings.num_workers)
+                frame_gen.duration * 1000, num_frames, fps, settings.num_workers)
 
     workers = []
     paused_workers = []

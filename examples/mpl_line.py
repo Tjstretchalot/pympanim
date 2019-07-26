@@ -82,43 +82,42 @@ class SweepFrequencyScene(acts.Scene):
             print(f'sweep frequency at {time_ms}')
         act_state.frequency = 1 + time_ms*9
 
+def _scene():
+    scene = SweepFrequencyScene()
+    return (
+        acts.FluentScene(scene)
+        .time_rescale(1 / 5000)
+        .then(
+            acts.FluentScene(scene)
+            .dilate(pytweening.easeOutCubic)
+            .time_rescale(1 / 3000)
+            .reverse()
+            .build()
+        )
+        .then(
+            acts.FluentScene(scene)
+            .dilate(pytweening.easeOutCirc)
+            .crop(0, 0.5, 'ms')
+            .time_rescale(1 / 5000)
+            .build()
+        )
+        .then(
+            acts.FluentScene(scene)
+            .dilate(pytweening.easeInCirc)
+            .crop(0, 0.5, 'ms')
+            .time_rescale(1 / 5000)
+            .reverse()
+            .build()
+        )
+        .build())
+
 def _main():
     os.makedirs('out/examples', exist_ok=True)
     act_state = CosData(1, np.linspace(-1, 1, 100))
     renderer = CosRenderer((19.2, 10.8), 100)
-    scene = SweepFrequencyScene()
 
     pmaw.produce(
-        acts.Act(
-            act_state, renderer,
-            [
-                acts.FluentScene(scene)
-                .time_rescale(1 / 5000)
-                .then(
-                    acts.FluentScene(scene)
-                    .dilate(pytweening.easeOutCubic)
-                    .time_rescale(1 / 3000)
-                    .reverse()
-                    .build()
-                )
-                .then(
-                    acts.FluentScene(scene)
-                    .dilate(pytweening.easeOutCirc)
-                    .crop(0, 0.5, 'ms')
-                    .time_rescale(1 / 5000)
-                    .build()
-                )
-                .then(
-                    acts.FluentScene(scene)
-                    .dilate(pytweening.easeInCirc)
-                    .crop(0, 0.5, 'ms')
-                    .time_rescale(1 / 5000)
-                    .reverse()
-                    .build()
-                )
-                .build()
-            ]
-        ),
+        acts.Act(act_state, renderer, [_scene()]),
         60,
         100,
         -1,

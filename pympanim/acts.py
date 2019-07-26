@@ -332,7 +332,7 @@ class TimeDilateScene(Scene):
         resc_time = self.duration * resc_perc_time
         if dbg:
             print(f'time dilate at {time_ms} (perc: {perc_time}) applying '
-                  + f' child at {resc_time} (perc: {resc_perc_time})')
+                  + f'child at {resc_time} (perc: {resc_perc_time})')
         self.child.apply(act_state, resc_time, dbg)
 
     def exit(self, act_state: ActState):
@@ -382,7 +382,7 @@ class CroppedScene(Scene):
         self.child.enter(act_state)
 
     def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
-        newtime = time_ms + self.crop_start
+        newtime = time_ms * (self.duration / self.child.duration) + self.crop_start
         if dbg:
             print(f'crop at {time_ms} applying child at {newtime}')
         self.child.apply(act_state, newtime, dbg)

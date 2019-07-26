@@ -396,6 +396,7 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
 
     for worker in workers:
         worker.start_sync()
+    isticher.start()
 
     all_synced = False
     while not all_synced:

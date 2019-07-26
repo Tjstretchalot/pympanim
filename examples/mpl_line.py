@@ -96,15 +96,15 @@ def _scene():
         )
         .then(
             acts.FluentScene(scene)
-            .dilate(pytweening.easeOutCirc)
             .crop(0, 0.5, 'ms')
+            .dilate(pytweening.easeOutCirc)
             .time_rescale(1 / 5000)
             .build()
         )
         .then(
             acts.FluentScene(scene)
-            .dilate(pytweening.easeInCirc)
             .crop(0, 0.5, 'ms')
+            .dilate(pytweening.easeInCirc)
             .time_rescale(1 / 5000)
             .reverse()
             .build()

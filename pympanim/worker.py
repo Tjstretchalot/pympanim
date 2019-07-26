@@ -372,11 +372,14 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
     if logger is None:
         logger = logging.getLogger('pympanim.worker')
         logger.setLevel(logging.DEBUG)
-        logging.basicConfig(format='%(asctime)s [pympanim] %(message)s',
-                            datefmt='%m/%d/%Y %I:%M:%S %p')
+        logging.basicConfig(
+            format='%(asctime)s [%(filename)s:%(lineno)d] %(message)s',
+            datefmt='%m/%d/%Y %I:%M:%S %p')
 
     ms_per_frame = 1000 / fps
     num_frames = int(frame_gen.duration / ms_per_frame)
+    logger.info('Settings: %0.1f seconds; %d frames at %d fps with %d workers...',
+                frame_gen.duration * 1000, num_frames, settings.num_workers)
 
     workers = []
     paused_workers = []
@@ -463,9 +466,9 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
             recpsec, procpsec = perf.mean()
             frames_to_proc = num_frames - isticher.next_frame
             time_left_sec = frames_to_proc / procpsec
-            logger.info('[%s secs remaining] Generating %s images/sec and '
-                        + 'processing %s images/sec', f'{time_left_sec:.1f}',
-                        f'{recpsec:.3f}', f'{procpsec:.3f}')
+            logger.info('[%0.1f secs remaining] Generating %0.2f images/sec and ' # pylint: disable=logging-not-lazy
+                        + 'processing %0.2f images/sec', time_left_sec,
+                        recpsec, procpsec)
 
         if thetime >= next_optim:
             next_optim = thetime + settings.perf_delay + settings.window_size
@@ -484,16 +487,15 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
 
             recpsec, procpsec = perf.mean()
             if old_perf is not None and cur_optim is not None:
-                oldrecpsec, oldprocpsec = old_perf # pylint: disable=unpacking-non-sequence
+                oldrecpsec, oldprocpsec = old_perf # pylint: disable=unpacking-non-sequence, unused-variable
 
                 if cur_optim == 'reduce_frame_batch_amount':
                     relative_performance = oldprocpsec / procpsec # prob <1
                     if relative_performance > settings.frame_batch_max_badness:
                         # keep the change
-                        logger.debug('found better setting: frame_batch_amount=%s '
-                                     + '(rel performance: %s)',
-                                     settings.frame_batch_amount,
-                                     f'{relative_performance:.3f}')
+                        logger.debug(
+                            'found better setting: frame_batch_amount=%d (rel performance: %0.3f)',
+                            settings.frame_batch_amount, relative_performance)
                         frame_batch_dyn_max = settings.frame_batch_amount
                         frame_batch_max_next_decay = (
                             thetime + settings.frame_batch_dyn_max_decay_time
@@ -510,10 +512,9 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
                     relative_performance = oldprocpsec / procpsec # prob >1
                     if relative_performance > settings.frame_batch_min_improvement:
                         # keep the change
-                        logger.debug('found better setting: frame_batch_amount=%s '
-                                     + '(rel performance: %s)',
-                                     settings.frame_batch_amount,
-                                     f'{relative_performance:.3f}')
+                        logger.debug(
+                            'found better setting: frame_batch_amount=%d (rel performance: %0.3f)',
+                            settings.frame_batch_amount, relative_performance)
                         frame_batch_dyn_min = settings.frame_batch_amount
                         frame_batch_min_next_decay = (
                             thetime + settings.frame_batch_dyn_min_decay_time

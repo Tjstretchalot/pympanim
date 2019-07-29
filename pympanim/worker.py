@@ -130,7 +130,8 @@ class FrameWorkerConnection:
             self.handle_post_frame(msg)
         elif msg[0] == 'sync':
             self.handle_sync(msg)
-        raise ValueError(f'unknown ack: {msg}')
+        else:
+            raise ValueError(f'unknown ack: {msg}')
 
     def check_ack_queue(self):
         """Checks the queue that the worker uses to talk to us"""

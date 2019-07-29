@@ -136,8 +136,9 @@ class FrameWorkerConnection:
     def check_ack_queue(self):
         """Checks the queue that the worker uses to talk to us"""
         try:
-            ack = self.ack_queue.get_nowait()
-            self.handle_ack(ack)
+            while True:
+                ack = self.ack_queue.get_nowait()
+                self.handle_ack(ack)
         except queue.Empty:
             pass
 
@@ -481,6 +482,7 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
         if not syncing:
             frames_per_worker_since_sync = 0
             for worker in workers:
+                worker.check_ack_queue()
                 while worker.offer(cur_frame, settings.worker_queue_size):
                     cur_frame += 1
                     frames_per_worker_since_sync = max(
@@ -529,7 +531,7 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
             next_progress = thetime + time_per_print
             recpsec, procpsec = perf.mean()
             frames_to_proc = num_frames - isticher.next_frame
-            time_left_sec = frames_to_proc / procpsec
+            time_left_sec = frames_to_proc / procpsec if procpsec > 0 else float('inf')
             logger.info('[%0.1f secs remaining] Generating %0.2f images/sec and ' # pylint: disable=logging-not-lazy
                         + 'processing %0.2f images/sec', time_left_sec,
                         recpsec, procpsec)

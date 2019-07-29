@@ -498,6 +498,8 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
                             break
                     if cur_frame >= num_frames:
                         break
+                if cur_frame >= num_frames:
+                    break
             if cur_frame >= num_frames:
                 break
 

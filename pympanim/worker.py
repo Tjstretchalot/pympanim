@@ -631,7 +631,7 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
                 settings.num_workers -= 1
                 if settings.frames_per_sync > settings.min_frames_per_sync:
                     settings.frames_per_sync -= 1
-                settings.frame_per_sync -= 1
+                settings.frames_per_sync -= 1
                 if not paused_workers:
                     paused = workers.pop()
                     paused_workers.append(paused)
@@ -644,7 +644,7 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
                     killed.start_finish()
                     logger.debug('Killed a worker %s', reason_str)
             elif settings.frames_per_sync < settings.max_frames_per_sync:
-                settings.frame_per_sync += 1
+                settings.frames_per_sync += 1
 
             want_reduce_frame_batch = perc_rec_proc < 1
             # if we have processed fewer than we have received it's not as

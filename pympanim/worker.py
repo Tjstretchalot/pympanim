@@ -57,6 +57,7 @@ class FrameWorker:
             time_ms = self.ms_per_frame * frame_num
             rawimg = self.frame_gen.generate_at(time_ms)
             self.img_queue.put((frame_num, rawimg))
+            self.send_queue.put(('post', frame_num))
             rawimg = None
 
         self.frame_gen.finish()
@@ -95,6 +96,8 @@ class FrameWorkerConnection:
         ack_queue (queue): the queue we receive messages from the frame worker from
         awaiting_sync (bool): True if we are awaiting a sync message, false otherwise
 
+        in_queue (int): the number of frames the worker still has to do
+        num_since_sync (int): the number of frames sent since the last sync
         last_frame (int): the last frame the worker was asked to process
     """
 
@@ -104,7 +107,38 @@ class FrameWorkerConnection:
         self.send_queue = send_queue
         self.ack_queue = ack_queue
         self.awaiting_sync = False
+        self.in_queue = 0
+        self.num_since_sync = 0
         self.last_frame = -1
+
+    def handle_post_frame(self, msg):
+        """Invoked internally after the worker acknowledges he has
+        completed a frame"""
+        self.in_queue -= 1
+
+    def handle_sync(self, msg):
+        """Invoked internally after the worker responds to a sync request"""
+        sync_time = time.time() - msg[1]
+        if sync_time > 1:
+            print(f'[FrameWorkerConnection] took a long time to sync ({sync_time:.3f} s)')
+        self.awaiting_sync = False
+        self.num_since_sync = 0
+
+    def handle_ack(self, msg):
+        """Invoked internally for messages from the worker"""
+        if msg[0] == 'post':
+            self.handle_post_frame(msg)
+        elif msg[0] == 'sync':
+            self.handle_sync(msg)
+        raise ValueError(f'unknown ack: {msg}')
+
+    def check_ack_queue(self):
+        """Checks the queue that the worker uses to talk to us"""
+        try:
+            ack = self.ack_queue.get_nowait()
+            self.handle_ack(ack)
+        except queue.Empty:
+            pass
 
     def start_sync(self):
         """Starts the syncing process"""
@@ -115,29 +149,16 @@ class FrameWorkerConnection:
         """Checks if the syncing process is complete"""
         if not self.awaiting_sync:
             return True
-        try:
-            ack = self.ack_queue.get_nowait()
-            if ack[0] != 'sync':
-                raise ValueError(f'expected sync response, got {ack}')
-            sync_time = time.time() - ack[1]
-            if sync_time > 1:
-                print(f'[FrameWorkerConnection] took a long time to sync ({sync_time:.3f} s)')
-            self.awaiting_sync = False
-            return True
-        except queue.Empty:
-            return False
+        self.check_ack_queue()
+        return not self.awaiting_sync
 
     def sync(self):
         """Waits for this worker to catch up"""
         self.start_sync()
-        resp = self.ack_queue.get()
-        self.awaiting_sync = False
-        if resp[0] != 'sync':
-            raise ValueError(f'expected sync response, got {resp}')
-        sync_time = time.time() - resp[1]
-        if sync_time > 1:
-            print(f'[FrameWorkerConnection] took a long time to sync ({sync_time:.3f} s)')
-        return sync_time
+        while self.awaiting_sync:
+            resp = self.ack_queue.get()
+            self.handle_ack(resp)
+        return time.time() - resp[1]
 
     def start_finish(self):
         """Starts the finish process"""
@@ -159,7 +180,19 @@ class FrameWorkerConnection:
     def send(self, frame_num):
         """Notifies this worker that it should render the specified frame number"""
         self.send_queue.put(('img', frame_num))
+        self.in_queue += 1
+        self.num_since_sync += 1
         self.last_frame = frame_num
+
+    def offer(self, frame_num, target_in_queue) -> bool:
+        """If this worker has fewer than target_in_queue items in its queue,
+        then we send the specified frame numebr to the worker and return true.
+        Otherwise, we return false.
+        """
+        if self.in_queue < target_in_queue:
+            self.send(frame_num)
+            return True
+        return False
 
     def close(self):
         """Closes all queues"""
@@ -194,6 +227,11 @@ class PerformanceSettings:
             change to have some effect on performance. Can be 0
         max_workers (int): the maximum number of threads generating images,
             defaults to 2/3 number of physical cores
+        worker_queue_size (int): the number of jobs we try to maintain in the
+            queue for each worker.
+        work_per_dispatch (int): the amount of work we do between scanning the
+            worker queue to see if we need to dispatch jobs. Increasing the
+            queue size allows increasing this
         spawn_worker_threshold_low (float): the percentage of frames received
             that are processed by the image thread in a given amount of time
             that triggers spawning another worker when we have have appreciably
@@ -266,6 +304,8 @@ class PerformanceSettings:
             window_size=15.0,
             perf_delay=2.5,
             max_workers=None,
+            worker_queue_size=5,
+            work_per_dispatch=4,
             spawn_worker_threshold_low=0.8,
             spawn_worker_threshold_high=1.2,
             kill_worker_threshold_low=0.5,
@@ -273,7 +313,7 @@ class PerformanceSettings:
             ooo_balance=100, # this is 829mb of 1920x1080 images
             ooo_cap=500, # this is 4.15 gb of said images in memory
             ooo_error=5000, # 41.5 gb of said images in memory
-            min_frames_per_sync=10,
+            min_frames_per_sync=100,
             max_frames_per_sync=1500,
             frame_batch_min_improvement=1.05,
             frame_batch_max_badness=1.0,
@@ -297,6 +337,8 @@ class PerformanceSettings:
             window_size=(window_size, float),
             perf_delay=(perf_delay, float),
             max_workers=(max_workers, int),
+            worker_queue_size=(worker_queue_size, int),
+            work_per_dispatch=(work_per_dispatch, int),
             spawn_worker_threshold_low=(spawn_worker_threshold_low, float),
             spawn_worker_threshold_high=(spawn_worker_threshold_high, float),
             kill_worker_threshold_low=(kill_worker_threshold_low, float),
@@ -320,6 +362,8 @@ class PerformanceSettings:
         self.window_size = window_size
         self.perf_delay = perf_delay
         self.max_workers = max_workers
+        self.worker_queue_size = worker_queue_size
+        self.work_per_dispatch = work_per_dispatch
         self.spawn_worker_threshold_low = spawn_worker_threshold_low
         self.spawn_worker_threshold_high = spawn_worker_threshold_high
         self.kill_worker_threshold_low = kill_worker_threshold_low
@@ -430,28 +474,34 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
 
 
     cur_frame = 0
-    frames_per_worker_since_sync = 0
     syncing = False
 
     while cur_frame < num_frames:
         if not syncing:
+            frames_per_worker_since_sync = 0
             for worker in workers:
-                for i in range(settings.frame_batch_amount):
-                    worker.send(cur_frame)
+                while worker.offer(cur_frame, settings.worker_queue_size):
                     cur_frame += 1
+                    frames_per_worker_since_sync = max(
+                        frames_per_worker_since_sync, worker.num_since_sync)
                     if cur_frame >= num_frames:
                         break
-                if cur_frame >= num_frames:
-                    break
+                    for i in range(settings.frame_batch_amount - 1):
+                        worker.send(cur_frame)
+                        cur_frame += 1
+                        frames_per_worker_since_sync = max(
+                            frames_per_worker_since_sync, worker.num_since_sync)
+                        if cur_frame >= num_frames:
+                            break
+                    if cur_frame >= num_frames:
+                        break
             if cur_frame >= num_frames:
                 break
-            frames_per_worker_since_sync += settings.frame_batch_amount
 
             if frames_per_worker_since_sync > settings.frames_per_sync:
                 for worker in workers:
                     worker.start_sync()
                 syncing = True
-                frames_per_worker_since_sync = 0
         else:
             syncing = False
             for worker in workers:
@@ -459,7 +509,7 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
                     syncing = True
                     break
 
-        for i in range(settings.frame_batch_amount * len(workers)):
+        for i in range(settings.work_per_dispatch):
             isticher.do_work()
 
         while len(isticher.ooo_frames) > settings.ooo_cap:

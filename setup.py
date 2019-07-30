@@ -18,7 +18,7 @@ setuptools.setup(
     install_requires=['pyzmq', 'pytypeutils', 'Pillow'],
     classifiers=(
         'Programming Language :: Python :: 3',
-        'Programming Language :7 Python :: 3.6',
+        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'License :: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication',
         'Topic :: Utilities'),

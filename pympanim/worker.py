@@ -618,7 +618,7 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
                 settings.num_workers += 1
                 if settings.frames_per_sync > settings.min_frames_per_sync:
                     settings.frames_per_sync -= 1
-                if len(paused_workers) > 1:
+                if paused_workers:
                     unpaused = paused_workers.pop()
                     workers.append(unpaused)
                     logger.debug('Unpaused a worker %s', reason_str)

@@ -8,6 +8,7 @@ import typing
 import traceback
 import psutil
 import logging
+import multiprocessing as mp
 from multiprocessing import Process
 import pympanim.frame_gen as fg
 import pympanim.image_stich as imgst
@@ -119,7 +120,7 @@ class FrameWorkerConnection:
     def handle_sync(self, msg):
         """Invoked internally after the worker responds to a sync request"""
         sync_time = time.time() - msg[1]
-        if sync_time > 1:
+        if sync_time > 5:
             print(f'[FrameWorkerConnection] took a long time to sync ({sync_time:.3f} s)')
         self.awaiting_sync = False
         self.num_since_sync = 0
@@ -423,6 +424,12 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
             performance / progress information
         logger (Logger): the logger to use for printing progress information
     """
+
+    try:
+        mp.set_start_method('spawn')
+    except RuntimeError:
+        pass
+
     if settings is None:
         settings = PerformanceSettings()
     if logger is None:

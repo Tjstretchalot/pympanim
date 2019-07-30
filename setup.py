@@ -4,7 +4,7 @@ import os
 
 setuptools.setup(
     name='pympanim',
-    version='0.0.6',
+    version='0.0.7',
     author='Timothy Moore',
     author_email='mtimothy984@gmail.com',
     description='Multiprocessing-friendly animations',
@@ -18,7 +18,7 @@ setuptools.setup(
     install_requires=['pyzmq', 'pytypeutils', 'Pillow'],
     classifiers=(
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
+        'Programming Language :7 Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'License :: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication',
         'Topic :: Utilities'),

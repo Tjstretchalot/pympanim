@@ -39,7 +39,7 @@ def _main():
 
     pmaw.produce(
         fg.FluentFG(RedSquareCrosses((640, 480)))
-        .time_rescale(0.0002) # 5 seconds
+        .time_rescale_exact(5, 's')
         .dilate(easing.smootheststep)
         .build(),
         60,

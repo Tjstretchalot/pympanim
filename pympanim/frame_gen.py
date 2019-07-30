@@ -212,6 +212,44 @@ class TimeRescaleFrameGenerator(FrameGenerator):
     def finish(self):
         self.child.finish()
 
+class TimeRescaleExactDurationFrameGenerator(FrameGenerator):
+    """Takes another frame generator and runs it with the given duration,
+    linearly scaling time. Returns the exact duration it is passed in.
+
+    Attributes:
+        child (FrameGenerator): the thing which actually generates frames
+        new_duration (float): the number of milliseconds we run the child for
+    """
+    def __init__(self, child: FrameGenerator, new_duration: float):
+        tus.check(
+            new_duration=(new_duration, (int, float)),
+            child=(child, FrameGenerator)
+        )
+        if new_duration <= 0:
+            raise ValueError(f'new_duration={new_duration} must be positive')
+        self.new_duration = float(new_duration)
+        self.child = child
+
+    @property
+    def duration(self):
+        return self.new_duration
+
+    @property
+    def frame_size(self):
+        return self.child.frame_size
+
+    def start(self):
+        self.child.start()
+
+    def generate_at(self, time_ms: float):
+        return self.child.generate_at(time_ms * (self.child.duration / self.new_duration))
+
+    def generate_at_pil(self, time_ms: float):
+        return self.child.generate_at_pil(time_ms * (self.child.duration / self.new_duration))
+
+    def finish(self):
+        self.child.finish()
+
 class TimeDilateFrameGenerator(FrameGenerator):
     """Takes another frame generator and dilates time according to a specific
     easing.
@@ -623,6 +661,28 @@ class FluentFG:
         tus.check(playback_rate=(playback_rate, (int, float)))
 
         return self.apply(TimeRescaleFrameGenerator, playback_rate)
+
+    def time_rescale_exact(self, new_duration: float, unit: str) -> 'FluentScene':
+        """Similar to time_rescale except instead of specifying an exact
+        playback rate, which can cause rounding issues on the new
+        duration, you instead specify an exact new duration and accept some
+        rounding on the playback rate.
+
+        Args:
+            new_duration (float): the new duration in the given unit
+            unit (str): one of 'ms', 's', 'min', 'hr'
+        """
+        tus.check(
+            new_duration=(new_duration, (int, float)),
+            unit=(unit, str)
+        )
+        if unit not in mutils.UNITS_LOOKUP:
+            raise ValueError(f'unknown unit \'{unit}\'; should be one of '
+                             + str(list(mutils.UNITS_LOOKUP)))
+
+        ms_per_unit = mutils.UNITS_LOOKUP[unit]
+        return self.apply(TimeRescaleExactDurationFrameGenerator,
+                          new_duration*ms_per_unit)
 
     def overlay(self, overlay: FrameGenerator, pos: typing.Tuple[int, int]):
         """Overlays the current frame generator with the given one at the given

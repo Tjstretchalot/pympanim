@@ -48,7 +48,7 @@ class Scene:
     @property
     def duration(self) -> float:
         """Returns the number of milliseconds that this scene lasts for"""
-        raise NotImplementedError
+        return 1
 
     def start(self, act_state: ActState):
         """Called when this scene is loaded onto the thread that will
@@ -65,7 +65,7 @@ class Scene:
     def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
         """Must update the state such that it will render the frame at the
         given time relative to this scene."""
-        raise NotImplementedError
+        pass
 
     def exit(self, act_state: ActState):
         """Called when this was the last scene in the act to be rendered, but
@@ -227,6 +227,65 @@ class SceneSequenceScene(Scene):
             self.scenes[self._last_scene].exit(act_state)
             self._last_scene = None
 
+class JoinedScene(Scene):
+    """Describes multiple scenes which are applied at the same time in a
+    particular order. Helpful when you have scenes that do different things.
+
+    Attributes:
+        children (tuple[Scene]): the children of this scene in a particular order
+        sep_enters (bool): if true, the children each get a proper enter/exit
+            as per the documentation. if false, the children are all entered
+            and exitted at the same time which may improve performance,
+            especially when you know that the children being joined do not
+            interfere with each other.
+    """
+    def __init__(self, children: typing.Tuple[Scene],
+                 sep_enters: bool) -> None:
+        tus.check(children=(children, (list, tuple)),
+                  sep_enters=(sep_enters, bool))
+        tus.check_listlike(children=(children, Scene, (1, None)))
+
+        duration = children[0].duration
+
+        for i, child in enumerate(children):
+            if child.duration != duration:
+                raise ValueError(
+                    f'children[0].duration={duration}, but '
+                    + f'children[{i}].duration={child.duration}'
+                )
+
+        self.children = tuple(children)
+        self.sep_enters = sep_enters
+
+    @property
+    def duration(self):
+        return self.children[0].duration
+
+    def start(self, act_state: ActState):
+        for child in self.children:
+            child.start(act_state)
+
+    def enter(self, act_state: ActState):
+        if not self.sep_enters:
+            for child in self.children:
+                child.enter(act_state)
+
+    def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
+        for i, child in enumerate(self.children):
+            if self.sep_enters:
+                child.enter(act_state)
+            if dbg:
+                print(f'JoinedScene applying children[{i}]={type(child)} '
+                      + f'at time {time_ms}')
+            child.apply(act_state, time_ms, dbg)
+            if self.sep_enters:
+                child.exit(act_state)
+
+    def exit(self, act_state: ActState):
+        if not self.sep_enters:
+            for child in self.children:
+                child.exit(act_state)
+
 class TimeRescaleScene(Scene):
     """Describes a scene which is just another scene played back at a different
     rate.
@@ -262,6 +321,40 @@ class TimeRescaleScene(Scene):
         newtime = time_ms * self.playback_rate
         if dbg:
             print(f'time rescale at {time_ms} applying child at {newtime}')
+        self.child.apply(act_state, newtime, dbg)
+
+    def exit(self, act_state: ActState):
+        self.child.exit(act_state)
+
+class TimeRescaleExactDurationScene(Scene):
+    """Acts very similarly to a time rescale scene except this has an exact
+    duration that it uses, moving the floating point error to the playback
+    rate instead.
+
+    Attributes:
+        new_duration (float): the duration that we have
+        child (Scene): the child scene whose duration is changed
+    """
+    def __init__(self, child: Scene, new_duration: float):
+        tus.check(child=(child, Scene),
+                  new_duration=(new_duration, (int, float)))
+        self.new_duration = new_duration
+        self.child = child
+
+    @property
+    def duration(self):
+        return self.new_duration
+
+    def start(self, act_state: ActState):
+        self.child.start(act_state)
+
+    def enter(self, act_state: ActState):
+        self.child.enter(act_state)
+
+    def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
+        newtime = time_ms * (self.child.duration / self.new_duration)
+        if dbg:
+            print(f'time dur. resc. at {time_ms} applying child at {newtime}')
         self.child.apply(act_state, newtime, dbg)
 
     def exit(self, act_state: ActState):
@@ -397,14 +490,23 @@ class FluentScene:
 
     Attributes:
         base (Scene): the main scene that the transforms effect
-        followed_by [list[Scene]]: the scenes that should have been appended to
+        followed_by (list[Scene]): the scenes that should have been appended to
             base but haven't yet. This is to avoid excessive wrapping from
             sequences of scenes.
+        joined_with (list[Scene]): the scenes that should have been joined to
+            the base but haven't yet. Similar idea to followed_by
+        join_is_sep (bool): True if the join enters occur separately, false
+            otherwise.
+        pushed (list[FluentScene]): scenes which are currently not being modified
+            by commands.
     """
     def __init__(self, base: Scene):
         tus.check(base=(base, Scene))
         self.base = base
         self.followed_by = []
+        self.joined_with = []
+        self.join_is_sep = False
+        self.pushed = []
 
     def duration(self):
         """Gets the current duration of this scene"""
@@ -424,12 +526,91 @@ class FluentScene:
         """
         self.base = transform(self.build(), *args, **kwargs)
         self.followed_by = []
+        self.joined_with = []
         return self
 
     def then(self, scene: Scene) -> 'FluentScene':
         """Has the given scene follow the currently described scene"""
         tus.check(scene=(scene, Scene))
+        if self.joined_with:
+            self.apply(lambda x: x)
         self.followed_by.append(scene)
+        return self
+
+    def push(self, scene: Scene) -> 'FluentScene':
+        """Puts the currently generated scene into the background for now,
+        meaning it will not be modified by future commands, and then begins
+        the current state with the given scene.
+
+        Example:
+            scene1: Scene
+            scene2: Scene
+            acts.FluentScene(scene1)
+                .time_rescale_exact(5, 's') # modifies scene1
+                .push(scene2)
+                .time_rescale_exact(5, 's') # only modifies scene2
+                .pop() # now its scene 1 (5s) -> scene2 (5s)
+                .dilate(easing.smoothstep) # modifies both scene 1 and 2
+        """
+        curscene = FluentScene(self.base)
+        curscene.followed_by = self.followed_by
+        curscene.joined_with = self.joined_with
+        curscene.join_is_sep = self.join_is_sep
+
+        self.followed_by = []
+        self.joined_with = []
+        self.join_is_sep = []
+        self.pushed.append(curscene)
+        self.base = scene
+        return self
+
+    def pop(self, style: str = 'then') -> 'FluentScene':
+        """The analogue to push. Causes future calls to also modify the
+        last pushed scene.
+        """
+        tus.check(style=(style, str))
+
+        popped = self.pushed.pop()
+        cur = self.build()
+
+        self.base = popped.base
+        self.followed_by = popped.followed_by
+        self.joined_with = popped.joined_with
+        self.join_is_sep = popped.join_is_sep
+        if style == 'then':
+            return self.then(cur)
+        if style == 'join':
+            return self.join(cur, False)
+        if style == 'join_sep':
+            return self.join(cur, True)
+        raise ValueError(f'style={style} unsupported, should be then, join, or join_sep')
+
+    def join(self, scene: Scene, sep_enters: bool) -> 'FluentScene':
+        """Has the given scene apply at the same time as the current one.
+
+        If sep_enters is true, the code path will be
+            current.enter()
+            current.apply()
+            current.exit()
+            scene.enter()
+            scene.apply()
+            scene.exit()
+
+        Otherwise,
+            current.enter()
+            scene.enter()
+
+            current.apply() # this
+            scene.apply()   # and this may repeat multiple times
+
+            current.exit()
+            scene.exit()
+        """
+        if self.followed_by or (self.joined_with and
+                                sep_enters != self.join_is_sep):
+            self.apply(lambda x: x)
+        self.joined_with.append(scene)
+        self.join_is_sep = sep_enters
         return self
 
     def reverse(self) -> 'FluentScene':
@@ -480,10 +661,36 @@ class FluentScene:
         tus.check(playback_rate=(playback_rate, (int, float)))
         return self.apply(TimeRescaleScene, playback_rate)
 
+    def time_rescale_exact(self, new_duration: float, unit: str) -> 'FluentScene':
+        """Similar to time_rescale except instead of specifying an exact
+        playback rate, which can cause rounding issues on the new
+        duration, you instead specify an exact new duration and accept some
+        rounding on the playback rate.
+
+        Args:
+            new_duration (float): the new duration in the given unit
+            unit (str): one of 'ms', 's', 'min', 'hr'
+        """
+        tus.check(
+            new_duration=(new_duration, (int, float)),
+            unit=(unit, str)
+        )
+        if unit not in mutils.UNITS_LOOKUP:
+            raise ValueError(f'unknown unit \'{unit}\'; should be one of '
+                             + str(list(mutils.UNITS_LOOKUP)))
+
+        ms_per_unit = mutils.UNITS_LOOKUP[unit]
+        return self.apply(TimeRescaleExactDurationScene, new_duration*ms_per_unit)
+
     def build(self):
         """Builds the actual scene that has been created by this factory"""
+        res = self.base
         if self.followed_by:
-            scenes = [self.base]
+            scenes = [res]
             scenes.extend(self.followed_by)
-            return SceneSequenceScene(scenes)
-        return self.base
+            res = SceneSequenceScene(scenes)
+        if self.joined_with:
+            scenes = [res]
+            scenes.extend(self.joined_with)
+            res = JoinedScene(scenes, self.join_is_sep)
+        return res

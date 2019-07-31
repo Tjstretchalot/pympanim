@@ -243,3 +243,21 @@ python3 -m examples.mpl_line
 ```
 
 Produces https://gfycat.com/wickedpracticalattwatersprairiechicken
+
+## Known Issues
+
+If processes are forked instead of spawned, text will appear spastic in
+matplotlib. In general, matplotlib does not handle forked processes well.
+The worker attempts to force spawning mode instead of fork-mode, but this
+will fail if the process is already forked. If you are experiencing weird
+or glitchy videos, include this *before any other imports* which might be
+spawning processes (e.g. torch or torchvision).
+
+```py
+import multiprocessing as mp
+
+try:
+    mp.set_start_method('spawn')
+except RuntimeError:
+    pass
+```

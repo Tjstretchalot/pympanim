@@ -3,7 +3,7 @@
 ## Summary
 
 This library helps building movies in python from images. Specifically, it
-intends to allow multiple threads to produce images which are stiched together
+intends to allow multiple threads to produce images which are stitched together
 into movies with ffmpeg.
 
 ## Use-cases

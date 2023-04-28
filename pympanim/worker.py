@@ -565,7 +565,7 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
                 oldrecpsec, oldprocpsec = old_perf # pylint: disable=unpacking-non-sequence, unused-variable
 
                 if cur_optim == 'reduce_frame_batch_amount':
-                    relative_performance = oldprocpsec / procpsec # prob <1
+                    relative_performance = 0 if procpsec == 0 else oldprocpsec / procpsec
                     if relative_performance > settings.frame_batch_max_badness:
                         # keep the change
                         logger.debug(
@@ -584,7 +584,7 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
                             thetime + settings.frame_batch_dyn_min_decay_time
                         )
                 elif cur_optim == 'increase_frame_batch_amount':
-                    relative_performance = oldprocpsec / procpsec # prob >1
+                    relative_performance = 0 if procpsec == 0 else oldprocpsec / procpsec
                     if relative_performance > settings.frame_batch_min_improvement:
                         # keep the change
                         logger.debug(

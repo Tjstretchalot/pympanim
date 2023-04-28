@@ -4,7 +4,7 @@ import os
 
 setuptools.setup(
     name='pympanim',
-    version='0.0.8',
+    version='0.0.9',
     author='Timothy Moore',
     author_email='mtimothy984@gmail.com',
     description='Multiprocessing-friendly animations',

@@ -542,8 +542,8 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
             frames_to_proc = num_frames - isticher.next_frame
             time_left_sec = frames_to_proc / procpsec if procpsec > 0 else float('inf')
             logger.info('[%0.1f secs remaining] Generating %0.2f images/sec and ' # pylint: disable=logging-not-lazy
-                        + 'processing %0.2f images/sec', time_left_sec,
-                        recpsec, procpsec)
+                        + 'processing %0.2f images/sec. [%d OOO frames]', time_left_sec,
+                        recpsec, procpsec, len(isticher.ooo_frames))
 
         if thetime >= next_optim:
             next_optim = thetime + settings.perf_delay + settings.window_size

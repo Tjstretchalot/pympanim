@@ -4,6 +4,7 @@ for that easing. It is recommended that libraries use the pytweening
 library for additional easings.
 """
 
+
 class Easing:
     """The interface for easings. Things that accept easings should work for
     any callable object that acts like an Easing."""
@@ -26,14 +27,16 @@ class Easing:
         """
         raise NotImplementedError
 
-def freeze(n, at=0): # pylint: disable=invalid-name
+
+def freeze(n, at=0):
     """This is the constant function f(n) = at for all n in [0, 1].
 
     This is **not** a proper easing.
     """
     return at
 
-def squeeze(n, amt=0.2): # pylint: disable=invalid-name
+
+def squeeze(n, amt=0.2):
     """Squeezes the n so that instead of going from 0 to 1 in unit time, it goes
     to 0 to 1 in (1-amt) time with padding on both sides.
 
@@ -43,9 +46,10 @@ def squeeze(n, amt=0.2): # pylint: disable=invalid-name
         return 0
     if n >= 1 - amt:
         return 1
-    return (n - amt) / (1 - (amt*2))
+    return (n - amt) / (1 - (amt * 2))
 
-def doublespeed(n): # pylint: disable=invalid-name
+
+def doublespeed(n):
     """A non-symmetric easing which moves linearly from 0 to 1 in first 0.5
     and then stays constant for last 0.5
 
@@ -54,7 +58,8 @@ def doublespeed(n): # pylint: disable=invalid-name
 
     return n * 2 if n < 0.5 else 1
 
-def smoothstep(n): # pylint: disable=invalid-name
+
+def smoothstep(n):
     """A symmetric easing that starts and ends with first derivative 0.
 
     This is a proper easing.
@@ -67,7 +72,8 @@ def smoothstep(n): # pylint: disable=invalid-name
 
     return n * n * (3.0 - 2.0 * n)
 
-def smootheststep(n): # pylint: disable=invalid-name
+
+def smootheststep(n):
     """A symmetric easing that starts and ends with first, second, and third derivative 0.
 
     This is a proper easing.

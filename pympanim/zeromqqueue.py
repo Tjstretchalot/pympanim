@@ -7,6 +7,7 @@ import queue
 import time
 import pytypeutils as tus
 
+
 class ZeroMQQueue:
     """A queue-like object that uses zmq as the backend. Each side is unidirectional,
     and the direction swaps when you serialize. Typical usecase goes as follows:
@@ -58,8 +59,8 @@ class ZeroMQQueue:
 
         context = zmq.Context()
 
-        connection = context.socket(zmq.PUSH if is_out else zmq.PULL) # pylint: disable=no-member
-        connection.connect(f'tcp://127.0.0.1:{port}')
+        connection = context.socket(zmq.PUSH if is_out else zmq.PULL)
+        connection.connect(f"tcp://127.0.0.1:{port}")
 
         return cls(connection, port, is_out)
 
@@ -69,11 +70,11 @@ class ZeroMQQueue:
         this connects to it, otherwise it binds to a random port."""
 
         context = zmq.Context()
-        connection = context.socket(zmq.PULL) # pylint: disable=no-member
+        connection = context.socket(zmq.PULL)
         if port is None:
-            port = connection.bind_to_random_port('tcp://127.0.0.1')
+            port = connection.bind_to_random_port("tcp://127.0.0.1")
         else:
-            connection.connect(f'tcp://127.0.0.1:{port}')
+            connection.connect(f"tcp://127.0.0.1:{port}")
 
         return cls(connection, port, False)
 
@@ -83,25 +84,27 @@ class ZeroMQQueue:
         this connects to it, otherwise it binds to a random port."""
 
         context = zmq.Context()
-        connection = context.socket(zmq.PUSH) # pylint: disable=no-member
+        connection = context.socket(zmq.PUSH)
         if port is None:
-            port = connection.bind_to_random_port('tcp://127.0.0.1')
+            port = connection.bind_to_random_port("tcp://127.0.0.1")
         else:
-            connection.connect(f'tcp://127.0.0.1:{port}')
+            connection.connect(f"tcp://127.0.0.1:{port}")
 
         return cls(connection, port, True)
 
     def _again(self, desc=None):
         """Called when we receive an EAGAIN error"""
         if self._last_eagain_spam is None or time.time() > self._last_eagain_spam + 5:
-            print(f'Received EAGAIN response - output full! - (operation: {desc}) - sleeping 1ms')
+            print(
+                f"Received EAGAIN response - output full! - (operation: {desc}) - sleeping 1ms"
+            )
             self._last_eagain_spam = time.time()
         time.sleep(0.001)
 
-    def get(self, block=True, timeout=None): # pylint: disable=unused-argument
+    def get(self, block=True, timeout=None):
         """Gets the next value from the queue, blocking by default. Timeout is ignored"""
         if self.is_output:
-            raise RuntimeError('tried to get from a put-only queue')
+            raise RuntimeError("tried to get from a put-only queue")
         if not block:
             return self.get_nowait()
 
@@ -115,12 +118,12 @@ class ZeroMQQueue:
             try:
                 return self.connection.recv_pyobj()
             except zmq.Again:
-                self._again('recv_pyobj')
+                self._again("recv_pyobj")
 
     def get_nowait(self):
         """Gets the value in the queue if there is one, raises queue.Empty if not"""
         if self.is_output:
-            raise RuntimeError('tried to get from a put-only queue')
+            raise RuntimeError("tried to get from a put-only queue")
 
         if self.have_last_val:
             self.have_last_val = False
@@ -129,15 +132,15 @@ class ZeroMQQueue:
             return val
 
         try:
-            return self.connection.recv_pyobj(zmq.NOBLOCK) # pylint: disable=no-member
+            return self.connection.recv_pyobj(zmq.NOBLOCK)
         except zmq.ZMQError as exc:
             raise queue.Empty from exc
 
-    def put(self, val, block=True, timeout=None): #pylint: disable=unused-argument
+    def put(self, val, block=True, timeout=None):
         """Puts a value into the queue. Blocks if block=True, otherwise is put_nowait.
         Timeout is ignored"""
         if not self.is_output:
-            raise RuntimeError('tried to put into a get-only queue')
+            raise RuntimeError("tried to put into a get-only queue")
         if not block:
             return self.put_nowait(val)
 
@@ -145,15 +148,15 @@ class ZeroMQQueue:
             try:
                 return self.connection.send_pyobj(val)
             except zmq.Again:
-                self._again('send_pyobj')
+                self._again("send_pyobj")
 
     def put_nowait(self, val):
         """Puts a value into the queue, nonblocking. Raises queue.Full if not"""
         if not self.is_output:
-            raise RuntimeError('tried to put into a get-only queue')
+            raise RuntimeError("tried to put into a get-only queue")
 
         try:
-            self.connection.send_pyobj(val, zmq.NOBLOCK) # pylint: disable=no-member
+            self.connection.send_pyobj(val, zmq.NOBLOCK)
         except zmq.ZMQError as exc:
             raise queue.Full from exc
 

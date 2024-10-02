@@ -11,7 +11,11 @@ import pytypeutils as tus
 import pympanim.utils as mutils
 from pympanim.easing import Easing
 
-def img_to_bytes(img: PIL.Image) -> bytes:
+if typing.TYPE_CHECKING:
+    from pympanim.acts import FluentScene
+
+
+def img_to_bytes(img: PIL.Image.Image) -> bytes:
     """Converts the given pillow image to a valid return value for
     FrameGenerator.generate_at.
 
@@ -21,9 +25,12 @@ def img_to_bytes(img: PIL.Image) -> bytes:
     Returns:
         The rgba encoded bytes for the given pillow image
     """
-    if img.mode == 'RGBA':
+    if img.mode == "RGBA":
         return img.tobytes()
-    return img.convert('RGBA').tobytes()
+
+    with img.convert("RGBA") as converted:
+        return converted.tobytes()
+
 
 class FrameGenerator:
     """The interface for something that is capable of generating frames.
@@ -75,7 +82,7 @@ class FrameGenerator:
         """
         raise NotImplementedError
 
-    def generate_at_pil(self, time_ms: float) -> PIL.Image:
+    def generate_at_pil(self, time_ms: float) -> PIL.Image.Image:
         """Generates a frame that is time_ms milliseconds into the scene. By
         default this just wraps the result from generate_at. This is exposed
         in case a faster implementation is possible, such as when the frame
@@ -88,12 +95,12 @@ class FrameGenerator:
         Returns:
             The image in RGBA format.
         """
-        return PIL.Image.frombytes(
-            'RGBA', self.frame_size, self.generate_at(time_ms))
+        return PIL.Image.frombytes("RGBA", self.frame_size, self.generate_at(time_ms))
 
     def finish(self) -> None:
         """Called when this frame generator will not be used anymore."""
         pass
+
 
 class SequenceFrameGenerator(FrameGenerator):
     """A frame generator that generates frames from other frame generators
@@ -114,6 +121,7 @@ class SequenceFrameGenerator(FrameGenerator):
             must work when frame times are uncorrelated, in practice they tend
             to come at least monotonically
     """
+
     def __init__(self, children: typing.Tuple[FrameGenerator]):
         tus.check(children=(children, (list, tuple)))
         tus.check_listlike(children=(children, FrameGenerator, (1, None)))
@@ -126,8 +134,9 @@ class SequenceFrameGenerator(FrameGenerator):
         for i, child in enumerate(self.children):
             if child.frame_size != frame_size:
                 raise ValueError(
-                    f'children[0].frame_size = {frame_size}, but '
-                    + f'children[{i}].frame_size = {child.frame_size}')
+                    f"children[0].frame_size = {frame_size}, but "
+                    + f"children[{i}].frame_size = {child.frame_size}"
+                )
             cur += child.duration
             self.children_end_at.append(cur)
 
@@ -145,8 +154,7 @@ class SequenceFrameGenerator(FrameGenerator):
         for child in self.children:
             child.start()
 
-    def child_at(self, time_ms: float
-                ) -> typing.Tuple[int, FrameGenerator, float]:
+    def child_at(self, time_ms: float) -> typing.Tuple[int, FrameGenerator, float]:
         """Returns the child and the time relative to the child that the given
         time relative to us corresponds to.
 
@@ -155,17 +163,15 @@ class SequenceFrameGenerator(FrameGenerator):
             (FrameGenerator): the child that was found
             (float): the time relative to the child for the corresponding frame
         """
-        i, time = mutils.find_child(self.children_end_at, time_ms,
-                                    self._search_hint)
+        i, time = mutils.find_child(self.children_end_at, time_ms, self._search_hint)
         return i, self.children[i], time
-
 
     def generate_at(self, time_ms: float) -> bytes:
         i, child, reltime = self.child_at(time_ms)
         self._search_hint = i
         return child.generate_at(reltime)
 
-    def generate_at_pil(self, time_ms: float) -> PIL.Image:
+    def generate_at_pil(self, time_ms: float) -> PIL.Image.Image:
         i, child, reltime = self.child_at(time_ms)
         self._search_hint = i
         return child.generate_at_pil(reltime)
@@ -173,6 +179,7 @@ class SequenceFrameGenerator(FrameGenerator):
     def finish(self):
         for child in self.children:
             child.finish()
+
 
 class TimeRescaleFrameGenerator(FrameGenerator):
     """Takes another frame generator and runs it with a given playback rate
@@ -182,13 +189,13 @@ class TimeRescaleFrameGenerator(FrameGenerator):
         playback_rate (float): the number of milliseconds that pass for the
             child for every millisecond we see. 1.5 = 1.5x playback rate
     """
+
     def __init__(self, child: FrameGenerator, playback_rate: float):
         tus.check(
-            playback_rate=(playback_rate, (int, float)),
-            child=(child, FrameGenerator)
+            playback_rate=(playback_rate, (int, float)), child=(child, FrameGenerator)
         )
         if playback_rate <= 0:
-            raise ValueError(f'playback_rate={playback_rate} must be positive')
+            raise ValueError(f"playback_rate={playback_rate} must be positive")
         self.playback_rate = float(playback_rate)
         self.child = child
 
@@ -212,6 +219,7 @@ class TimeRescaleFrameGenerator(FrameGenerator):
     def finish(self):
         self.child.finish()
 
+
 class TimeRescaleExactDurationFrameGenerator(FrameGenerator):
     """Takes another frame generator and runs it with the given duration,
     linearly scaling time. Returns the exact duration it is passed in.
@@ -220,13 +228,13 @@ class TimeRescaleExactDurationFrameGenerator(FrameGenerator):
         child (FrameGenerator): the thing which actually generates frames
         new_duration (float): the number of milliseconds we run the child for
     """
+
     def __init__(self, child: FrameGenerator, new_duration: float):
         tus.check(
-            new_duration=(new_duration, (int, float)),
-            child=(child, FrameGenerator)
+            new_duration=(new_duration, (int, float)), child=(child, FrameGenerator)
         )
         if new_duration <= 0:
-            raise ValueError(f'new_duration={new_duration} must be positive')
+            raise ValueError(f"new_duration={new_duration} must be positive")
         self.new_duration = float(new_duration)
         self.child = child
 
@@ -242,13 +250,18 @@ class TimeRescaleExactDurationFrameGenerator(FrameGenerator):
         self.child.start()
 
     def generate_at(self, time_ms: float):
-        return self.child.generate_at(time_ms * (self.child.duration / self.new_duration))
+        return self.child.generate_at(
+            time_ms * (self.child.duration / self.new_duration)
+        )
 
     def generate_at_pil(self, time_ms: float):
-        return self.child.generate_at_pil(time_ms * (self.child.duration / self.new_duration))
+        return self.child.generate_at_pil(
+            time_ms * (self.child.duration / self.new_duration)
+        )
 
     def finish(self):
         self.child.finish()
+
 
 class TimeDilateFrameGenerator(FrameGenerator):
     """Takes another frame generator and dilates time according to a specific
@@ -260,17 +273,21 @@ class TimeDilateFrameGenerator(FrameGenerator):
         dilator_kwargs (dict): the arguments to the dilator
         child (FrameGenerator): the thing which actually generates frames
     """
-    def __init__(self, child: FrameGenerator, dilator: Easing,
-                 dilator_kwargs: typing.Optional[dict] = None):
+
+    def __init__(
+        self,
+        child: FrameGenerator,
+        dilator: Easing,
+        dilator_kwargs: typing.Optional[dict] = None,
+    ):
         tus.check(
             child=(child, FrameGenerator),
-            dilator_kwargs=(dilator_kwargs, (dict, type(None)))
+            dilator_kwargs=(dilator_kwargs, (dict, type(None))),
         )
         tus.check_callable(dilator=dilator)
         self.child = child
         self.dilator = dilator
-        self.dilator_kwargs = (
-            dilator_kwargs if dilator_kwargs is not None else dict())
+        self.dilator_kwargs = dilator_kwargs if dilator_kwargs is not None else dict()
 
     @property
     def duration(self):
@@ -298,12 +315,14 @@ class TimeDilateFrameGenerator(FrameGenerator):
     def finish(self):
         self.child.finish()
 
+
 class TimeReverseFrameGenerator(FrameGenerator):
     """Takes another frame generator and plays it in reverse.
 
     Attributes:
         child (FrameGenerator): the frame generator to play in reverse
     """
+
     def __init__(self, child: FrameGenerator):
         tus.check(child=(child, FrameGenerator))
         self.child = child
@@ -341,13 +360,17 @@ class RescaleFrameGenerator(FrameGenerator):
         resample (int): see PIL.Image.resize
         child (FrameGenerator): the frame generator which is being resized
     """
-    def __init__(self, child: FrameGenerator,
-                 new_frame_size: typing.Tuple[int, int],
-                 resample: int = PIL.Image.LANCZOS):
+
+    def __init__(
+        self,
+        child: FrameGenerator,
+        new_frame_size: typing.Tuple[int, int],
+        resample: int = PIL.Image.LANCZOS,
+    ):
         tus.check(
             child=(child, FrameGenerator),
             new_frame_size=(new_frame_size, (list, tuple)),
-            resample=(resample, int)
+            resample=(resample, int),
         )
         tus.check_listlike(new_frame_size=(new_frame_size, int, 2))
         self.child = child
@@ -366,14 +389,16 @@ class RescaleFrameGenerator(FrameGenerator):
         self.child.start()
 
     def generate_at(self, time_ms: float):
-        return img_to_bytes(self.generate_at_pil(time_ms))
+        with self.generate_at_pil(time_ms) as img:
+            return img_to_bytes(img)
 
     def generate_at_pil(self, time_ms):
-        img = self.child.generate_at_pil(time_ms)
-        return img.resize(self.new_frame_size, self.resample)
+        with self.child.generate_at_pil(time_ms) as original_img:
+            return original_img.resize(self.new_frame_size, self.resample)
 
     def finish(self):
         self.child.finish()
+
 
 class CroppedFrameGenerator(FrameGenerator):
     """Takes a frame generator and plays only a part of it.
@@ -385,21 +410,25 @@ class CroppedFrameGenerator(FrameGenerator):
             child.
         child (FrameGenerator): the frame generator which is being cropped
     """
-    def __init__(self, child: FrameGenerator, crop_start: float,
-                 crop_end: float) -> None:
+
+    def __init__(
+        self, child: FrameGenerator, crop_start: float, crop_end: float
+    ) -> None:
         tus.check(
             child=(child, FrameGenerator),
             crop_start=(crop_start, float),
-            crop_end=(crop_end, float)
+            crop_end=(crop_end, float),
         )
         if not 0 <= crop_start < child.duration:
             raise ValueError(
-                f'crop_start={crop_start} not in [0, child.duration='
-                + f'{child.duration})')
+                f"crop_start={crop_start} not in [0, child.duration="
+                + f"{child.duration})"
+            )
         if not crop_start < crop_end <= child.duration:
             raise ValueError(
-                f'crop_end={crop_end} not in (crop_start={crop_start}'
-                + f', child.duration={child.duration}]')
+                f"crop_end={crop_end} not in (crop_start={crop_start}"
+                + f", child.duration={child.duration}]"
+            )
 
         self.child = child
         self.crop_start = crop_start
@@ -428,6 +457,7 @@ class CroppedFrameGenerator(FrameGenerator):
     def finish(self):
         self.child.finish()
 
+
 class OverlayFrameGenerator(FrameGenerator):
     """Plays one frame generator over top another frame generator. This uses
     alpha compositing.
@@ -440,24 +470,34 @@ class OverlayFrameGenerator(FrameGenerator):
         pos (tuple[int, int]): the top left coordinate of the overlay relative
             to the top-left of the base
     """
-    def __init__(self, base: FrameGenerator, overlay: FrameGenerator,
-                 pos: typing.Tuple[int, int]):
-        tus.check(base=(base, FrameGenerator), overlay=(overlay, FrameGenerator),
-                  pos=(pos, (tuple, list)))
+
+    def __init__(
+        self, base: FrameGenerator, overlay: FrameGenerator, pos: typing.Tuple[int, int]
+    ):
+        tus.check(
+            base=(base, FrameGenerator),
+            overlay=(overlay, FrameGenerator),
+            pos=(pos, (tuple, list)),
+        )
         tus.check_listlike(pos=(pos, int, 2))
 
         if (
-                pos[0] < 0
-                or pos[1] < 0
-                or pos[0] + overlay.frame_size[0] > base.frame_size[0]
-                or pos[1] + overlay.frame_size[1] > base.frame_size[1]):
-            raise ValueError(f'cannot fit overlay at {pos} of size '
-                             + f'{overlay.frame_size} onto frame of size '
-                             + str(base.frame_size))
+            pos[0] < 0
+            or pos[1] < 0
+            or pos[0] + overlay.frame_size[0] > base.frame_size[0]
+            or pos[1] + overlay.frame_size[1] > base.frame_size[1]
+        ):
+            raise ValueError(
+                f"cannot fit overlay at {pos} of size "
+                + f"{overlay.frame_size} onto frame of size "
+                + str(base.frame_size)
+            )
 
         if base.duration != overlay.duration:
-            raise ValueError(f'durations dont match: base has {base.duration}'
-                             + f' and overlay has {overlay.duration}')
+            raise ValueError(
+                f"durations dont match: base has {base.duration}"
+                + f" and overlay has {overlay.duration}"
+            )
 
         self.base = base
         self.overlay = overlay
@@ -476,13 +516,14 @@ class OverlayFrameGenerator(FrameGenerator):
         self.overlay.start()
 
     def generate_at(self, time_ms: float):
-        return img_to_bytes(self.generate_at_pil(time_ms))
+        with self.generate_at_pil(time_ms) as img:
+            return img_to_bytes(img)
 
     def generate_at_pil(self, time_ms: float):
-        bimg = self.base.generate_at_pil(time_ms)
-        oimg = self.overlay.generate_at_pil(time_ms)
-        bimg.alpha_composite(oimg, self.pos)
-        return bimg
+        with self.base.generate_at_pil(
+            time_ms
+        ) as base_image, self.overlay.generate_at_pil(time_ms) as overlay_image:
+            return PIL.Image.alpha_composite(base_image, overlay_image, self.pos)
 
     def finish(self):
         self.base.finish()
@@ -527,6 +568,7 @@ class FluentFG:
         followed_by (list[FrameGenerator]): the frame generators that should
             come after this one in sequence.
     """
+
     # Less wrapping could be done if we take into account multiple crops can be
     # combined into a single crop, eg
     # fg.FluentFG(a).crop(15, 30, 's').crop(0, 5, 's') is the same as
@@ -537,22 +579,22 @@ class FluentFG:
         self.base = base
         self.followed_by = []
 
-    def then(self, other: FrameGenerator) -> 'FluentFG':
+    def then(self, other: FrameGenerator) -> "FluentFG":
         """Ensures that other will be the next frame in the sequence after
         base.
         """
         tus.check(other=(other, FrameGenerator))
         if other.frame_size != self.base.frame_size:
             raise ValueError(
-                f'cannot then({other}) when other.frame_size='
-                + f'{other.frame_size} and the current frame size is '
-                + f'{self.base.frame_size}')
+                f"cannot then({other}) when other.frame_size="
+                + f"{other.frame_size} and the current frame size is "
+                + f"{self.base.frame_size}"
+            )
 
         self.followed_by.append(other)
         return self
 
-    def apply(self, transform: typing.Callable,
-              *args, **kwargs) -> 'FluentFG':
+    def apply(self, transform: typing.Callable, *args, **kwargs) -> "FluentFG":
         """Applies the given transformation to the currently build frame
         generator, using the given arguments
 
@@ -580,11 +622,11 @@ class FluentFG:
         """Returns the frame size of the current video"""
         return self.base.frame_size
 
-    def reverse(self) -> 'FluentFG':
+    def reverse(self) -> "FluentFG":
         """Takes the current video and reverses time"""
         return self.apply(TimeReverseFrameGenerator)
 
-    def crop(self, start: float, end: float, unit: str) -> 'FluentFG':
+    def crop(self, start: float, end: float, unit: str) -> "FluentFG":
         """Crops this to be in the given subsection of time, where time
         is given in the specific unit.
 
@@ -595,30 +637,29 @@ class FluentFG:
                 all possible keys, see list(pympanim.utils.UNITS)
         """
         tus.check(
-            start=(start, (int, float)),
-            end=(end, (int, float)),
-            unit=(unit, str)
+            start=(start, (int, float)), end=(end, (int, float)), unit=(unit, str)
         )
         if unit not in mutils.UNITS_LOOKUP:
-            raise ValueError(
-                f'unit={unit} must be one of {list(mutils.UNITS_LOOKUP)}')
+            raise ValueError(f"unit={unit} must be one of {list(mutils.UNITS_LOOKUP)}")
 
         ms_per_unit = mutils.UNITS_LOOKUP[unit]
         start *= ms_per_unit
         end *= ms_per_unit
 
         if start < 0:
-            raise ValueError(f'start={start} must be positive')
+            raise ValueError(f"start={start} must be positive")
         if start >= end:
-            raise ValueError(f'start={start} must be before end={end}')
+            raise ValueError(f"start={start} must be before end={end}")
         if end >= self.base.duration:
             raise ValueError(
-                f'end={end} is after current duration={self.base.duration}')
+                f"end={end} is after current duration={self.base.duration}"
+            )
 
         return self.apply(CroppedFrameGenerator, start, end)
 
-    def dilate(self, dilator: Easing,
-               dilator_kwargs: typing.Optional[dict] = None) -> 'FluentFG':
+    def dilate(
+        self, dilator: Easing, dilator_kwargs: typing.Optional[dict] = None
+    ) -> "FluentFG":
         """Rescales time for the current frame generator to be rescaled by
         the given dilator.
 
@@ -627,15 +668,14 @@ class FluentFG:
             dilator_kwargs (typing.Optional[dict]): if specified, the keyword
                 arguments to the dilator
         """
-        tus.check(
-            dilator_kwargs=(dilator_kwargs, (dict, type(None)))
-        )
+        tus.check(dilator_kwargs=(dilator_kwargs, (dict, type(None))))
         tus.check_callable(dilator=dilator)
 
         return self.apply(TimeDilateFrameGenerator, dilator, dilator_kwargs)
 
-    def rescale(self, new_width: int, new_height: int,
-                resample: int = PIL.Image.LANCZOS) -> 'FluentFG':
+    def rescale(
+        self, new_width: int, new_height: int, resample: int = PIL.Image.LANCZOS
+    ) -> "FluentFG":
         """Rescales the frame generator to the given width and height, using
         the specified resampling technique.
 
@@ -648,12 +688,12 @@ class FluentFG:
         tus.check(
             new_width=(new_width, int),
             new_height=(new_height, int),
-            resample=(resample, int)
+            resample=(resample, int),
         )
 
         return self.apply(RescaleFrameGenerator, (new_width, new_height), resample)
 
-    def time_rescale(self, playback_rate: float) -> 'FluentFG':
+    def time_rescale(self, playback_rate: float) -> "FluentFG":
         """Rescales time to play back at the given rate. For example,
         a playback_rate of 2 means that the final video will complete in
         50% of the time.
@@ -662,7 +702,7 @@ class FluentFG:
 
         return self.apply(TimeRescaleFrameGenerator, playback_rate)
 
-    def time_rescale_exact(self, new_duration: float, unit: str) -> 'FluentScene':
+    def time_rescale_exact(self, new_duration: float, unit: str) -> "FluentScene":
         """Similar to time_rescale except instead of specifying an exact
         playback rate, which can cause rounding issues on the new
         duration, you instead specify an exact new duration and accept some
@@ -672,32 +712,30 @@ class FluentFG:
             new_duration (float): the new duration in the given unit
             unit (str): one of 'ms', 's', 'min', 'hr'
         """
-        tus.check(
-            new_duration=(new_duration, (int, float)),
-            unit=(unit, str)
-        )
+        tus.check(new_duration=(new_duration, (int, float)), unit=(unit, str))
         if unit not in mutils.UNITS_LOOKUP:
-            raise ValueError(f'unknown unit \'{unit}\'; should be one of '
-                             + str(list(mutils.UNITS_LOOKUP)))
+            raise ValueError(
+                f"unknown unit '{unit}'; should be one of "
+                + str(list(mutils.UNITS_LOOKUP))
+            )
 
         ms_per_unit = mutils.UNITS_LOOKUP[unit]
-        return self.apply(TimeRescaleExactDurationFrameGenerator,
-                          new_duration*ms_per_unit)
+        return self.apply(
+            TimeRescaleExactDurationFrameGenerator, new_duration * ms_per_unit
+        )
 
     def overlay(self, overlay: FrameGenerator, pos: typing.Tuple[int, int]):
         """Overlays the current frame generator with the given one at the given
         position. Note that the overlayed frame generator must have the same
         duration as the current one and must fit entirely within the frame
         """
-        tus.check(overlay=(overlay, FrameGenerator),
-                  pos=(pos, (list, tuple)))
+        tus.check(overlay=(overlay, FrameGenerator), pos=(pos, (list, tuple)))
         tus.check_listlike(pos=(pos, int, 2))
 
         return self.apply(OverlayFrameGenerator, overlay, pos)
 
     def build(self) -> FrameGenerator:
-        """Returns the frame generator that was described using a fluent api
-        """
+        """Returns the frame generator that was described using a fluent api"""
         if self.followed_by:
             scenes = [self.base]
             scenes.extend(self.followed_by)

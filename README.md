@@ -92,9 +92,10 @@ class MyActRenderer(acts.ActRenderer):
         return (1920, 1080) # in pixels
 
     def render(self, act_state: MyActState) -> bytes:
-        return fg.img_to_bytes(self.render_pil(act_state))
+        with self.render_pil(act_state) as img:
+            return fg.img_to_bytes(img)
 
-    def render_pil(self, act_state: MyActState) -> PIL.Image:
+    def render_pil(self, act_state: MyActState) -> PIL.Image.Image:
         # By default, render_pil delegates to render. It is shown reversed
         # here for completeness.
         return PIL.Image.new('RGBA', self.frame_size, 'white')
@@ -191,7 +192,8 @@ class MyFrameGenerator(fg.FrameGenerator):
     def generate_at(self, time_ms):
         # by default generate_at_pil delegates to generate_at. we show the
         # reverse for completeness
-        return fg.img_to_bytes(self.generate_at_pil(time_ms))
+        with self.generate_at_pil(time_ms) as img:
+            return fg.img_to_bytes(img)
 
     def generate_at_pil(self, time_ms):
         # this from white to red, you can do whatever

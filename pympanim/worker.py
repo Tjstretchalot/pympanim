@@ -2,6 +2,7 @@
 to utilize all the computing resources available to it.
 """
 
+import secrets
 import time
 import queue
 import typing
@@ -14,6 +15,7 @@ import pympanim.frame_gen as fg
 import pympanim.image_stich as imgst
 import pytypeutils as tus
 from pympanim.zeromqqueue import ZeroMQQueue
+
 
 class FrameWorker:
     """Describes something which can send and receive messages to/from the
@@ -30,8 +32,15 @@ class FrameWorker:
         frame_gen (FrameGenerator): the thing which actually generates frames.
         ms_per_frame (float): the number of milliseconds per frame
     """
-    def __init__(self, img_queue, rec_queue, send_queue, frame_gen: fg.FrameGenerator,
-                 ms_per_frame: float):
+
+    def __init__(
+        self,
+        img_queue,
+        rec_queue,
+        send_queue,
+        frame_gen: fg.FrameGenerator,
+        ms_per_frame: float,
+    ):
         self.img_queue = img_queue
         self.rec_queue = rec_queue
         self.send_queue = send_queue
@@ -46,19 +55,19 @@ class FrameWorker:
 
         while True:
             msg = self.rec_queue.get()
-            if msg[0] == 'sync':
-                self.send_queue.put(('sync', time.time()))
+            if msg[0] == "sync":
+                self.send_queue.put(("sync", time.time(), msg[2]))
                 continue
-            if msg[0] == 'finish':
+            if msg[0] == "finish":
                 break
-            if msg[0] != 'img':
-                raise ValueError(f'strange msg: {msg}')
+            if msg[0] != "img":
+                raise ValueError(f"strange msg: {msg}")
 
             frame_num = msg[1]
             time_ms = self.ms_per_frame * frame_num
             rawimg = self.frame_gen.generate_at(time_ms)
             self.img_queue.put((frame_num, rawimg))
-            self.send_queue.put(('post', frame_num))
+            self.send_queue.put(("post", frame_num))
             rawimg = None
 
         self.frame_gen.finish()
@@ -67,8 +76,10 @@ class FrameWorker:
         self.rec_queue.close()
         self.send_queue.close()
 
-def frame_worker_target(img_queue, rec_queue, send_queue, frame_gen,
-                        ms_per_frame, error_file):
+
+def frame_worker_target(
+    img_queue, rec_queue, send_queue, frame_gen, ms_per_frame, error_file
+):
     """Creates a frame worker with the given arguments and then runs it.
     The queues are assumed to be ZeroMQ queues which are serialized.
 
@@ -80,13 +91,13 @@ def frame_worker_target(img_queue, rec_queue, send_queue, frame_gen,
     send_queue = ZeroMQQueue.deser(send_queue)
 
     try:
-        FrameWorker(img_queue, rec_queue, send_queue, frame_gen,
-                    ms_per_frame).do_all()
+        FrameWorker(img_queue, rec_queue, send_queue, frame_gen, ms_per_frame).do_all()
     except:
         traceback.print_exc()
-        with open(error_file, 'w') as outfile:
+        with open(error_file, "w") as outfile:
             traceback.print_exc(file=outfile)
         raise
+
 
 class FrameWorkerConnection:
     """An instance in the main thread that describes a connection with a frame worker
@@ -95,19 +106,31 @@ class FrameWorkerConnection:
         img_queue (queue): the queue the frame worker sends images to us with
         send_queue (queue): the queue we send the frame worker messages with
         ack_queue (queue): the queue we receive messages from the frame worker from
-        awaiting_sync (bool): True if we are awaiting a sync message, false otherwise
+        awaiting_sync (Dict[bytes, float]): if we have sent sync messages which
+            have not been acknowledged yet, a dictionary from the unique identifier
+            we sent with the sync message to the time we went it.
+
+            Generally we don't try to have more than one sync waiting at a time, but
+            we still use these identifiers to ensure we don't get confused about what
+            they were acknowledging.
 
         in_queue (int): the number of frames the worker still has to do
-        num_since_sync (int): the number of frames sent since the last sync
+        num_since_sync (int): the number of frames sent we had zero awaiting syncs
         last_frame (int): the last frame the worker was asked to process
     """
 
-    def __init__(self, proc: Process, img_queue, send_queue, ack_queue):
+    def __init__(
+        self,
+        proc: Process,
+        img_queue: ZeroMQQueue,
+        send_queue: ZeroMQQueue,
+        ack_queue: ZeroMQQueue,
+    ):
         self.proc = proc
         self.img_queue = img_queue
         self.send_queue = send_queue
         self.ack_queue = ack_queue
-        self.awaiting_sync = False
+        self.awaiting_sync: typing.Dict[bytes, float] = dict()
         self.in_queue = 0
         self.num_since_sync = 0
         self.last_frame = -1
@@ -117,22 +140,33 @@ class FrameWorkerConnection:
         completed a frame"""
         self.in_queue -= 1
 
-    def handle_sync(self, msg):
+    def handle_sync(self, msg: typing.Tuple[typing.Literal["sync"], float, bytes]):
         """Invoked internally after the worker responds to a sync request"""
-        sync_time = time.time() - msg[1]
-        if sync_time > 5:
-            print(f'[FrameWorkerConnection] took a long time to sync ({sync_time:.3f} s)')
-        self.awaiting_sync = False
-        self.num_since_sync = 0
+        we_sent_at = self.awaiting_sync.pop(msg[2])
+        they_received_at = msg[1]
+
+        time_from_us_to_them = they_received_at - we_sent_at
+        time_from_them_to_us = time.time() - they_received_at
+        if time_from_us_to_them > 5:
+            print(
+                f"[FrameWorkerConnection] took a long time to sync ({time_from_us_to_them:.3f} s)"
+            )
+        if time_from_them_to_us > 5:
+            print(
+                f"[FrameWorkerConnection] took a long time to process sync ({time_from_them_to_us:.3f} s)"
+            )
+
+        if not self.awaiting_sync:
+            self.num_since_sync = 0
 
     def handle_ack(self, msg):
         """Invoked internally for messages from the worker"""
-        if msg[0] == 'post':
+        if msg[0] == "post":
             self.handle_post_frame(msg)
-        elif msg[0] == 'sync':
+        elif msg[0] == "sync":
             self.handle_sync(msg)
         else:
-            raise ValueError(f'unknown ack: {msg}')
+            raise ValueError(f"unknown ack: {msg}")
 
     def check_ack_queue(self):
         """Checks the queue that the worker uses to talk to us"""
@@ -145,8 +179,12 @@ class FrameWorkerConnection:
 
     def start_sync(self):
         """Starts the syncing process"""
-        self.send_queue.put(('sync', time.time()))
-        self.awaiting_sync = True
+        if self.awaiting_sync:
+            print("[FrameWorkerConnection] going to have multiple in progress syncs")
+        new_sync_uid = secrets.token_bytes(4)
+        new_sync_at = time.time()
+        self.awaiting_sync[new_sync_uid] = new_sync_at
+        self.send_queue.put(("sync", new_sync_at, new_sync_uid))
 
     def check_sync(self):
         """Checks if the syncing process is complete"""
@@ -155,17 +193,16 @@ class FrameWorkerConnection:
         self.check_ack_queue()
         return not self.awaiting_sync
 
-    def sync(self):
+    def sync(self) -> None:
         """Waits for this worker to catch up"""
         self.start_sync()
         while self.awaiting_sync:
             resp = self.ack_queue.get()
             self.handle_ack(resp)
-        return time.time() - resp[1]
 
     def start_finish(self):
         """Starts the finish process"""
-        self.send_queue.put(('finish',))
+        self.send_queue.put(("finish",))
 
     def check_finish(self):
         """Checks if the worker has shutdown yet"""
@@ -182,7 +219,7 @@ class FrameWorkerConnection:
 
     def send(self, frame_num):
         """Notifies this worker that it should render the specified frame number"""
-        self.send_queue.put(('img', frame_num))
+        self.send_queue.put(("img", frame_num))
         self.in_queue += 1
         self.num_since_sync += 1
         self.last_frame = frame_num
@@ -203,6 +240,7 @@ class FrameWorkerConnection:
         self.send_queue.close()
         self.ack_queue.close()
 
+
 class PerformanceSettings:
     """These are the settings that are used for performance. These are modified
     by runtime dynamics so when repeatedly running the same  or significantly
@@ -216,7 +254,11 @@ class PerformanceSettings:
         frames_per_sync (int): the number of frames before we ask workers to
             sync. Larger numbers give less feedback about how the workers
             are doing but waste less time. this is typically annealed
-            upward to max_frames_per_sync.
+            upward to max_frames_per_sync. This can start lower than
+            `min_frames_per_sync`, in which case it can only be increased
+            when we detect we're balanced until it reaches `min_frames_per_sync`
+            at which point it's increased when balanced and decreased when
+            unbalanced
         num_workers (int): the number of worker threads. the key variable.
             Defaults to 1/3 the number of physical cores.
         frame_batch_amount (int): the number of sequential frames sent to
@@ -300,38 +342,61 @@ class PerformanceSettings:
             that in general more frame batches means more out of order frames,
             so increasing this should involve increasing ooo_balance and
             ooo_cap.
+
+        max_frames_in_recieve_queue (int): the maximum number of frames that
+            we allow to be waiting for the stitcher thread to pick them up
+            before we stop sending jobs and just stitch. The work done to
+            reduce the number of frames in the receive queue is "unclogging"
+            work
+        unclogging_per_second_threshold_low (int): when we are doing less than
+            this amount of unclogging work per second we are ok to put more pressure
+            on the pipes
+        unclogging_per_second_threshold_high (int): when we are doing more than
+            than the low watermark but less than the high watermark we don't change
+            the pressure on the pipes in a way that would make it worse. If we are
+            doing more than this, we will try to reduce the pressure on the pipes
+            (by stopping workers)
     """
+
     def __init__(
-            self, frames_per_sync=10, num_workers=None,
-            frame_batch_amount=2,
-            window_size=15.0,
-            perf_delay=2.5,
-            max_workers=None,
-            worker_queue_size=5,
-            work_per_dispatch=4,
-            spawn_worker_threshold_low=0.8,
-            spawn_worker_threshold_high=1.2,
-            kill_worker_threshold_low=0.5,
-            kill_worker_threshold_high=0.8,
-            ooo_balance=100, # this is 829mb of 1920x1080 images
-            ooo_cap=500, # this is 4.15 gb of said images in memory
-            ooo_error=5000, # 41.5 gb of said images in memory
-            min_frames_per_sync=100,
-            max_frames_per_sync=1500,
-            frame_batch_min_improvement=1.05,
-            frame_batch_max_badness=1.0,
-            frame_batch_dyn_min_decay_time=120.0,
-            frame_batch_dyn_max_decay_time=120.0,
-            frame_batch_min=1,
-            frame_batch_max=10
-        ):
+        self,
+        frames_per_sync: int = 10,
+        num_workers: typing.Optional[int] = None,
+        frame_batch_amount: int = 2,
+        window_size: float = 15.0,
+        perf_delay: float = 2.5,
+        max_workers: typing.Optional[int] = None,
+        worker_queue_size: int = 5,
+        work_per_dispatch: typing.Optional[int] = None,
+        spawn_worker_threshold_low: float = 0.8,
+        spawn_worker_threshold_high: float = 1.2,
+        kill_worker_threshold_low: float = 0.5,
+        kill_worker_threshold_high: float = 0.8,
+        ooo_balance: int = 100,  # this is 829mb of 1920x1080 images
+        ooo_cap: int = 500,  # this is 4.15 gb of said images in memory
+        ooo_error: int = 5000,  # 41.5 gb of said images in memory
+        min_frames_per_sync: typing.Optional[int] = None,
+        max_frames_per_sync: typing.Optional[int] = None,
+        frame_batch_min_improvement: float = 1.05,
+        frame_batch_max_badness: float = 1.0,
+        frame_batch_dyn_min_decay_time: float = 120.0,
+        frame_batch_dyn_max_decay_time: float = 120.0,
+        frame_batch_min: float = 1,
+        frame_batch_max: float = 10,
+        max_frames_in_recieve_queue: int = 10,  # 83mb of 1920x1080 images
+        unclogging_per_second_threshold_low: int = 2,
+        unclogging_per_second_threshold_high: int = 10,
+    ):
         if num_workers is None:
             num_workers = psutil.cpu_count(logical=False) // 3
         if max_workers is None:
-            max_workers = max(
-                num_workers,
-                (psutil.cpu_count(logical=False) // 3) * 2
-            )
+            max_workers = max(num_workers, (psutil.cpu_count(logical=False) // 3) * 2)
+        if work_per_dispatch is None:
+            work_per_dispatch = max_workers * 2
+        if min_frames_per_sync is None:
+            min_frames_per_sync = 10
+        if max_frames_per_sync is None:
+            max_frames_per_sync = max_workers * 10
 
         tus.check(
             frames_per_sync=(frames_per_sync, int),
@@ -356,7 +421,7 @@ class PerformanceSettings:
             frame_batch_dyn_min_decay_time=(frame_batch_dyn_min_decay_time, float),
             frame_batch_dyn_max_decay_time=(frame_batch_dyn_max_decay_time, float),
             frame_batch_min=(frame_batch_min, int),
-            frame_batch_max=(frame_batch_max, int)
+            frame_batch_max=(frame_batch_max, int),
         )
 
         self.frames_per_sync = frames_per_sync
@@ -382,6 +447,20 @@ class PerformanceSettings:
         self.frame_batch_dyn_max_decay_time = frame_batch_dyn_max_decay_time
         self.frame_batch_min = frame_batch_min
         self.frame_batch_max = frame_batch_max
+        self.max_frames_in_recieve_queue = max_frames_in_recieve_queue
+        self.unclogging_per_second_threshold_low = unclogging_per_second_threshold_low
+        self.unclogging_per_second_threshold_high = unclogging_per_second_threshold_high
+
+
+def _bytes_to_pretty(bytes: int) -> str:
+    """Converts a number of bytes to a pretty string"""
+    units = ("B", "KB", "MB", "GB", "TB", "PB")
+    unit = 0
+    while bytes >= 1024 and unit < len(units) - 1:
+        bytes /= 1024
+        unit += 1
+    return f"{bytes:.2f} {units[unit]}"
+
 
 def _spawn_worker(frame_gen, ms_per_frame, i):
     img_queue = ZeroMQQueue.create_recieve()
@@ -389,18 +468,29 @@ def _spawn_worker(frame_gen, ms_per_frame, i):
     ack_queue = ZeroMQQueue.create_recieve()
     proc = Process(
         target=frame_worker_target,
-        args=(img_queue.serd(), send_queue.serd(), ack_queue.serd(), frame_gen,
-              ms_per_frame, f'worker_{i}_error.log')
+        args=(
+            img_queue.serd(),
+            send_queue.serd(),
+            ack_queue.serd(),
+            frame_gen,
+            ms_per_frame,
+            f"worker_{i}_error.log",
+        ),
     )
     proc.start()
     return FrameWorkerConnection(proc, img_queue, send_queue, ack_queue)
 
 
-def produce(frame_gen: fg.FrameGenerator, fps: float,
-            dpi: typing.Union[int, float], bitrate: typing.Union[int, float],
-            outfile: str,
-            settings: PerformanceSettings = None, time_per_print: float = 15.0,
-            logger: logging.Logger = None) -> PerformanceSettings:
+def produce(
+    frame_gen: fg.FrameGenerator,
+    fps: float,
+    dpi: typing.Union[int, float],
+    bitrate: typing.Union[int, float],
+    outfile: str,
+    settings: PerformanceSettings = None,
+    time_per_print: float = 15.0,
+    logger: logging.Logger = None,
+) -> PerformanceSettings:
     """Produces a video with the given frame rate (specified as milliseconds
     per frame), using the given performance settings. If the performance
     settings are not provided, reasonable defaults are used. Returns the final
@@ -413,6 +503,8 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
             want to turn into a movie.
         fps (int, float): the number of frames per second
         dpi (int, float): the number of pixels per inch
+        bitrate (int): maximum output bitrate. May be less than or equal
+            to 0 for unconstrained bitrate. In kilobytes.
         outfile (str): the path to the mp4 file where you want to save
             the movie to. Should not already exist. The directory up
             to this point will be auto-generated.
@@ -426,31 +518,40 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
     """
 
     try:
-        mp.set_start_method('spawn')
+        mp.set_start_method("spawn")
     except RuntimeError:
         pass
 
     if settings is None:
         settings = PerformanceSettings()
     if logger is None:
-        logger = logging.getLogger('pympanim.worker')
+        logger = logging.getLogger("pympanim.worker")
         logger.setLevel(logging.DEBUG)
         logging.basicConfig(
-            format='%(asctime)s [%(filename)s:%(lineno)d] %(message)s',
-            datefmt='%m/%d/%Y %I:%M:%S %p')
+            format="%(asctime)s [%(filename)s:%(lineno)d] %(message)s",
+            datefmt="%m/%d/%Y %I:%M:%S %p",
+        )
 
     ms_per_frame = 1000 / fps
     num_frames = int(frame_gen.duration / ms_per_frame)
-    logger.info('Settings: %0.1f seconds; %d frames at %d fps with %d workers...',
-                frame_gen.duration / 1000, num_frames, fps, settings.num_workers)
+    logger.info(
+        "Settings: %0.1f seconds; %d frames at %d fps with %d workers...",
+        frame_gen.duration / 1000,
+        num_frames,
+        fps,
+        settings.num_workers,
+    )
 
-    workers = []
-    paused_workers = []
-    stopping_workers = [] # closed when we process their last frame
+    workers: typing.List[FrameWorkerConnection] = []
+    paused_workers: typing.List[FrameWorkerConnection] = []
+    stopping_workers: typing.List[FrameWorkerConnection] = (
+        []
+    )  # closed when we process their last frame
 
     perf = imgst.ISRunningAveragePerfHandler(settings.window_size)
-    isticher = imgst.ImageSticher(frame_gen.frame_size, dpi, bitrate, fps,
-                                  outfile, settings.ooo_error)
+    isticher = imgst.ImageSticher(
+        frame_gen.frame_size, dpi, bitrate, fps, outfile, settings.ooo_error
+    )
     isticher.perfs.append(perf)
 
     for i in range(settings.num_workers):
@@ -473,211 +574,339 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
         time.sleep(0.001)
 
     old_perf = None
-    cur_optim = None # magical string values
+    cur_optim = None  # magical string values
+    cur_optim_started_at = time.time()
     frame_batch_dyn_min = settings.frame_batch_min
     frame_batch_dyn_max = settings.frame_batch_max
-    frame_batch_min_next_decay = float('inf')
-    frame_batch_max_next_decay = float('inf')
+    frame_batch_min_next_decay = float("inf")
+    frame_batch_max_next_decay = float("inf")
     next_optim = time.time() + settings.perf_delay + settings.window_size
-    next_progress = time.time() + max(settings.perf_delay + settings.window_size, time_per_print)
+    pipe_read_catchups_in_cur_optim = 0
 
+    my_process = psutil.Process()
+    pipe_read_catchups_since_progress = 0
+    next_progress = time.time() + max(
+        settings.perf_delay + settings.window_size, time_per_print
+    )
 
     cur_frame = 0
     syncing = False
 
-    while cur_frame < num_frames:
-        if not syncing:
-            frames_per_worker_since_sync = 0
-            for worker in workers:
-                worker.check_ack_queue()
-                while worker.offer(cur_frame, settings.worker_queue_size):
-                    cur_frame += 1
-                    frames_per_worker_since_sync = max(
-                        frames_per_worker_since_sync, worker.num_since_sync)
-                    if cur_frame >= num_frames:
-                        break
-                    for i in range(settings.frame_batch_amount - 1):
-                        worker.send(cur_frame)
+    try:
+        while cur_frame < num_frames:
+            if not syncing:
+                frames_per_worker_since_sync = 0
+                for worker in workers:
+                    worker.check_ack_queue()
+                    while worker.offer(cur_frame, settings.worker_queue_size):
                         cur_frame += 1
                         frames_per_worker_since_sync = max(
-                            frames_per_worker_since_sync, worker.num_since_sync)
+                            frames_per_worker_since_sync, worker.num_since_sync
+                        )
+                        if cur_frame >= num_frames:
+                            break
+                        for i in range(settings.frame_batch_amount - 1):
+                            worker.send(cur_frame)
+                            cur_frame += 1
+                            frames_per_worker_since_sync = max(
+                                frames_per_worker_since_sync, worker.num_since_sync
+                            )
+                            if cur_frame >= num_frames:
+                                break
                         if cur_frame >= num_frames:
                             break
                     if cur_frame >= num_frames:
                         break
                 if cur_frame >= num_frames:
                     break
-            if cur_frame >= num_frames:
-                break
 
-            if frames_per_worker_since_sync > settings.frames_per_sync:
-                for worker in workers:
-                    worker.start_sync()
-                syncing = True
-        else:
-            syncing = False
-            for worker in workers:
-                if not worker.check_sync():
+                if frames_per_worker_since_sync > settings.frames_per_sync:
+                    for worker in workers:
+                        worker.start_sync()
                     syncing = True
+            else:
+                syncing = False
+                for worker in workers:
+                    if not worker.check_sync():
+                        syncing = True
+                        break
+
+            for i in range(settings.work_per_dispatch):
+                isticher.do_work()
+
+            frames_not_ready = sum(worker.in_queue for worker in workers)
+            while (
+                cur_frame
+                - isticher.next_frame
+                - len(isticher.ooo_frames)
+                - frames_not_ready
+                > settings.max_frames_in_recieve_queue
+            ):
+                pipe_read_catchups_since_progress += 1
+                pipe_read_catchups_in_cur_optim += 1
+                isticher.do_work()
+
+            while len(isticher.ooo_frames) > settings.ooo_cap:
+                isticher.do_work()
+
+            for i in range(len(stopping_workers) - 1, 0, -1):
+                worker = stopping_workers[i]
+                if worker.check_finish() and isticher.next_frame > worker.last_frame:
+                    worker.check_ack_queue()  # cleanup just in case
+                    isticher.remove_queue(worker.img_queue)
+                    worker.close()
+                    stopping_workers.pop(i)
+
+            thetime = time.time()
+            if thetime >= next_progress:
+                next_progress = thetime + time_per_print
+                recpsec, procpsec = perf.mean()
+                frames_to_proc = num_frames - isticher.next_frame
+                time_left_sec = (
+                    frames_to_proc / procpsec if procpsec > 0 else float("inf")
+                )
+
+                process_mem = my_process.memory_info()
+                rss_bytes = typing.cast(int, process_mem.rss)
+                vms_bytes = typing.cast(int, process_mem.vms)
+
+                logger.info(
+                    "[%0.1f secs remaining]\n"
+                    "  Generating %0.2f images/sec\n"
+                    "  Processing %0.2f images/sec\n"
+                    "  Settings:\n"
+                    "    frames per sync: %d\n"
+                    "    worker queue size: %d\n"
+                    "    frame batch amount: %d\n"
+                    "    out of order frames: balance: %d, cap: %d, error: %d\n"
+                    "  Memory: %s RSS, %s VMS\n"
+                    "    Out of order frames: %d\n"
+                    "    Worker send queue size: %d\n"
+                    "    Current highest frames since sync: %d\n"
+                    "    Last frame sent to ffmpeg: %d\n"
+                    "    Last frame requested from a worker: %d\n"
+                    "    Pipe read catchups since progress: %d",
+                    time_left_sec,
+                    recpsec,
+                    procpsec,
+                    settings.frames_per_sync,
+                    settings.worker_queue_size,
+                    settings.frame_batch_amount,
+                    settings.ooo_balance,
+                    settings.ooo_cap,
+                    settings.ooo_error,
+                    _bytes_to_pretty(rss_bytes),
+                    _bytes_to_pretty(vms_bytes),
+                    len(isticher.ooo_frames),
+                    sum(worker.in_queue for worker in workers),
+                    max(worker.num_since_sync for worker in workers),
+                    isticher.next_frame,
+                    cur_frame,
+                    pipe_read_catchups_since_progress,
+                )
+                pipe_read_catchups_since_progress = 0
+
+            if thetime >= next_optim:
+                next_optim = thetime + settings.perf_delay + settings.window_size
+                if frame_batch_min_next_decay < thetime:
+                    frame_batch_dyn_min -= 1
+                    frame_batch_min_next_decay = (
+                        float("inf")
+                        if frame_batch_dyn_min <= settings.frame_batch_min
+                        else thetime + settings.frame_batch_dyn_min_decay_time
+                    )
+                if frame_batch_max_next_decay < thetime:
+                    frame_batch_dyn_max += 1
+                    frame_batch_max_next_decay = (
+                        float("inf")
+                        if frame_batch_dyn_max >= settings.frame_batch_max
+                        else thetime + settings.frame_batch_dyn_max_decay_time
+                    )
+
+                recpsec, procpsec = perf.mean()
+                if old_perf is not None and cur_optim is not None:
+                    oldrecpsec, oldprocpsec = old_perf
+
+                    if cur_optim == "reduce_frame_batch_amount":
+                        relative_performance = (
+                            0 if procpsec == 0 else oldprocpsec / procpsec
+                        )
+                        if relative_performance > settings.frame_batch_max_badness:
+                            # keep the change
+                            logger.debug(
+                                "found better setting: frame_batch_amount=%d (rel performance: %0.3f)",
+                                settings.frame_batch_amount,
+                                relative_performance,
+                            )
+                            frame_batch_dyn_max = settings.frame_batch_amount
+                            frame_batch_max_next_decay = (
+                                thetime + settings.frame_batch_dyn_max_decay_time
+                            )
+                        else:
+                            # revert the change
+                            # we're evil scientists so we dont report null results
+                            settings.frame_batch_amount += 1
+                            frame_batch_dyn_min = settings.frame_batch_amount
+                            frame_batch_min_next_decay = (
+                                thetime + settings.frame_batch_dyn_min_decay_time
+                            )
+                    elif cur_optim == "increase_frame_batch_amount":
+                        relative_performance = (
+                            0 if procpsec == 0 else oldprocpsec / procpsec
+                        )
+                        if relative_performance > settings.frame_batch_min_improvement:
+                            # keep the change
+                            logger.debug(
+                                "found better setting: frame_batch_amount=%d (rel performance: %0.3f)",
+                                settings.frame_batch_amount,
+                                relative_performance,
+                            )
+                            frame_batch_dyn_min = settings.frame_batch_amount
+                            frame_batch_min_next_decay = (
+                                thetime + settings.frame_batch_dyn_min_decay_time
+                            )
+                        else:
+                            # revert the change
+                            # we're evil scientists so we dont report null results
+                            settings.frame_batch_amount -= 1
+                            frame_batch_dyn_max = settings.frame_batch_amount
+                            frame_batch_max_next_decay = (
+                                thetime + settings.frame_batch_dyn_max_decay_time
+                            )
+                    else:
+                        raise RuntimeError(f"unknown cur_optim = {cur_optim}")
+
+                    cur_optim = None
+
+                perc_rec_proc = procpsec / recpsec
+                unclogging_per_second = pipe_read_catchups_in_cur_optim / (
+                    thetime - cur_optim_started_at
+                )
+                reason_str = (
+                    f"(processing {perc_rec_proc:.3f} images for every "
+                    f"image generated, have {len(isticher.ooo_frames)} "
+                    "frames awaiting processing, had to pause for clogged "
+                    f"pipes {unclogging_per_second:.1f} times per second)"
+                )
+
+                threshold_spawn, threshold_kill = (
+                    (
+                        settings.spawn_worker_threshold_low,
+                        settings.kill_worker_threshold_low,
+                    )
+                    if len(isticher.ooo_frames) < settings.ooo_balance
+                    else (
+                        settings.spawn_worker_threshold_high,
+                        settings.kill_worker_threshold_high,
+                    )
+                )
+
+                if (
+                    perc_rec_proc > threshold_spawn
+                    and pipe_read_catchups_in_cur_optim
+                    < settings.unclogging_per_second_threshold_low
+                    and settings.num_workers < settings.max_workers
+                ):
+                    settings.num_workers += 1
+                    if settings.frames_per_sync > settings.min_frames_per_sync:
+                        settings.frames_per_sync -= 1
+                    if paused_workers:
+                        unpaused = paused_workers.pop()
+                        workers.append(unpaused)
+                        logger.debug("Unpaused a worker %s", reason_str)
+                    else:
+                        worker = _spawn_worker(frame_gen, ms_per_frame, worker_counter)
+                        isticher.register_queue(worker.img_queue)
+                        workers.append(worker)
+                        worker_counter += 1
+                        logger.debug("Spawned a worker %s", reason_str)
+                elif (
+                    perc_rec_proc < threshold_kill
+                    or pipe_read_catchups_in_cur_optim
+                    > settings.unclogging_per_second_threshold_high
+                ) and settings.num_workers > 1:
+                    settings.num_workers -= 1
+                    if settings.frames_per_sync > settings.min_frames_per_sync:
+                        settings.frames_per_sync -= 1
+                    if not paused_workers:
+                        paused = workers.pop()
+                        paused_workers.append(paused)
+                        logger.debug("Paused a worker %s", reason_str)
+                    else:
+                        paused = workers.pop()
+                        killed = paused_workers.pop()
+                        paused_workers.append(paused)
+                        stopping_workers.append(killed)
+                        killed.start_finish()
+                        logger.debug("Killed a worker %s", reason_str)
+                elif (
+                    pipe_read_catchups_in_cur_optim
+                    > settings.unclogging_per_second_threshold_high
+                    and settings.frames_per_sync > settings.min_frames_per_sync
+                ):
+                    settings.frames_per_sync -= 1
+                    logger.debug("Reduced frames per sync %s", reason_str)
+                elif (
+                    pipe_read_catchups_in_cur_optim
+                    < settings.unclogging_per_second_threshold_low
+                    and settings.frames_per_sync < settings.max_frames_per_sync
+                ):
+                    settings.frames_per_sync += 1
+                    logger.debug("Increased frames per sync %s", reason_str)
+
+                want_reduce_frame_batch = perc_rec_proc < 1
+                # if we have processed fewer than we have received it's not as
+                # important that we optimize image generation
+                can_reduce_frame_batch = (
+                    settings.frame_batch_amount > frame_batch_dyn_min
+                )
+                can_increase_frame_batch = (
+                    settings.frame_batch_amount < frame_batch_dyn_max
+                )
+                pipe_read_catchups_in_cur_optim = 0
+                cur_optim_started_at = time.time()
+
+                if (
+                    want_reduce_frame_batch or not can_increase_frame_batch
+                ) and can_reduce_frame_batch:
+                    cur_optim = "reduce_frame_batch_amount"
+                    settings.frame_batch_amount -= 1
+                elif can_increase_frame_batch:
+                    cur_optim = "increase_frame_batch_amount"
+                    settings.frame_batch_amount += 1
+
+                old_perf = (recpsec, procpsec)
+    except KeyboardInterrupt:
+        logger.debug(
+            "Caught keyboard interrupt, waiting 1 second for workers to stop themselves"
+        )
+        all_workers = workers + paused_workers + stopping_workers
+
+        started_waiting_at = time.time()
+        all_finished = False
+        while time.time() - started_waiting_at < 1:
+            all_finished = True
+            for worker in all_workers:
+                if not worker.check_finish():
+                    all_finished = False
                     break
+            if all_finished:
+                break
+            time.sleep(0.001)
 
-        for i in range(settings.work_per_dispatch):
-            isticher.do_work()
+        if not all_finished:
+            logger.debug("Workers did not stop themselves, sending SIGKILL")
+            for worker in all_workers:
+                worker.proc.kill()
+        else:
+            logger.debug("Workers stopped themselves")
 
-        while len(isticher.ooo_frames) > settings.ooo_cap:
-            isticher.do_work()
+        for worker in all_workers:
+            worker.close()
 
-        for i in range(len(stopping_workers) - 1, 0, -1):
-            worker = stopping_workers[i]
-            if worker.check_finish() and isticher.next_frame > worker.last_frame:
-                worker.check_sync() # cleanup just in case
-                isticher.remove_queue(worker.img_queue)
-                worker.close()
-                stopping_workers.pop(i)
+        raise
 
-        thetime = time.time()
-        if thetime >= next_progress:
-            next_progress = thetime + time_per_print
-            recpsec, procpsec = perf.mean()
-            frames_to_proc = num_frames - isticher.next_frame
-            time_left_sec = frames_to_proc / procpsec if procpsec > 0 else float('inf')
-            logger.info('[%0.1f secs remaining] Generating %0.2f images/sec and ' # pylint: disable=logging-not-lazy
-                        + 'processing %0.2f images/sec. [%d OOO frames]', time_left_sec,
-                        recpsec, procpsec, len(isticher.ooo_frames))
-
-        if thetime >= next_optim:
-            next_optim = thetime + settings.perf_delay + settings.window_size
-            if frame_batch_min_next_decay < thetime:
-                frame_batch_dyn_min -= 1
-                frame_batch_min_next_decay = (
-                    float('inf') if frame_batch_dyn_min <= settings.frame_batch_min
-                    else thetime + settings.frame_batch_dyn_min_decay_time
-                )
-            if frame_batch_max_next_decay < thetime:
-                frame_batch_dyn_max += 1
-                frame_batch_max_next_decay = (
-                    float('inf') if frame_batch_dyn_max >= settings.frame_batch_max
-                    else thetime + settings.frame_batch_dyn_max_decay_time
-                )
-
-            recpsec, procpsec = perf.mean()
-            if old_perf is not None and cur_optim is not None:
-                oldrecpsec, oldprocpsec = old_perf # pylint: disable=unpacking-non-sequence, unused-variable
-
-                if cur_optim == 'reduce_frame_batch_amount':
-                    relative_performance = 0 if procpsec == 0 else oldprocpsec / procpsec
-                    if relative_performance > settings.frame_batch_max_badness:
-                        # keep the change
-                        logger.debug(
-                            'found better setting: frame_batch_amount=%d (rel performance: %0.3f)',
-                            settings.frame_batch_amount, relative_performance)
-                        frame_batch_dyn_max = settings.frame_batch_amount
-                        frame_batch_max_next_decay = (
-                            thetime + settings.frame_batch_dyn_max_decay_time
-                        )
-                    else:
-                        # revert the change
-                        # we're evil scientists so we dont report null results
-                        settings.frame_batch_amount += 1
-                        frame_batch_dyn_min = settings.frame_batch_amount
-                        frame_batch_min_next_decay = (
-                            thetime + settings.frame_batch_dyn_min_decay_time
-                        )
-                elif cur_optim == 'increase_frame_batch_amount':
-                    relative_performance = 0 if procpsec == 0 else oldprocpsec / procpsec
-                    if relative_performance > settings.frame_batch_min_improvement:
-                        # keep the change
-                        logger.debug(
-                            'found better setting: frame_batch_amount=%d (rel performance: %0.3f)',
-                            settings.frame_batch_amount, relative_performance)
-                        frame_batch_dyn_min = settings.frame_batch_amount
-                        frame_batch_min_next_decay = (
-                            thetime + settings.frame_batch_dyn_min_decay_time
-                        )
-                    else:
-                        # revert the change
-                        # we're evil scientists so we dont report null results
-                        settings.frame_batch_amount -= 1
-                        frame_batch_dyn_max = settings.frame_batch_amount
-                        frame_batch_max_next_decay = (
-                            thetime + settings.frame_batch_dyn_max_decay_time
-                        )
-                else:
-                    raise RuntimeError(f'unknown cur_optim = {cur_optim}')
-
-                cur_optim = None
-
-            perc_rec_proc = procpsec / recpsec
-            reason_str = (f'(processing {perc_rec_proc:.3f} images for every '
-                          + f'image generated, have {len(isticher.ooo_frames)} '
-                          + 'frames awaiting processing)')
-
-            threshold_spawn, threshold_kill = (
-                (settings.spawn_worker_threshold_low,
-                 settings.kill_worker_threshold_low)
-                if len(isticher.ooo_frames) < settings.ooo_balance
-                else (settings.spawn_worker_threshold_high,
-                      settings.kill_worker_threshold_high)
-            )
-
-            if (perc_rec_proc > threshold_spawn
-                    and settings.num_workers < settings.max_workers):
-                settings.num_workers += 1
-                if settings.frames_per_sync > settings.min_frames_per_sync:
-                    settings.frames_per_sync -= 1
-                if paused_workers:
-                    unpaused = paused_workers.pop()
-                    workers.append(unpaused)
-                    logger.debug('Unpaused a worker %s', reason_str)
-                else:
-                    worker = _spawn_worker(frame_gen, ms_per_frame, worker_counter)
-                    isticher.register_queue(worker.img_queue)
-                    workers.append(worker)
-                    worker_counter += 1
-                    logger.debug('Spawned a worker %s', reason_str)
-            elif (perc_rec_proc < threshold_kill
-                    and settings.num_workers > 1):
-                settings.num_workers -= 1
-                if settings.frames_per_sync > settings.min_frames_per_sync:
-                    settings.frames_per_sync -= 1
-                settings.frames_per_sync -= 1
-                if not paused_workers:
-                    paused = workers.pop()
-                    paused_workers.append(paused)
-                    logger.debug('Paused a worker %s', reason_str)
-                else:
-                    paused = workers.pop()
-                    killed = paused_workers.pop()
-                    paused_workers.append(paused)
-                    stopping_workers.append(killed)
-                    killed.start_finish()
-                    logger.debug('Killed a worker %s', reason_str)
-            elif settings.frames_per_sync < settings.max_frames_per_sync:
-                settings.frames_per_sync += 1
-
-            want_reduce_frame_batch = perc_rec_proc < 1
-            # if we have processed fewer than we have received it's not as
-            # important that we optimize image generation
-            can_reduce_frame_batch = (
-                settings.frame_batch_amount > frame_batch_dyn_min
-            )
-            can_increase_frame_batch = (
-                settings.frame_batch_amount < frame_batch_dyn_max
-            )
-
-            if ((want_reduce_frame_batch or not can_increase_frame_batch)
-                    and can_reduce_frame_batch):
-                cur_optim = 'reduce_frame_batch_amount'
-                settings.frame_batch_amount -= 1
-            elif can_increase_frame_batch:
-                cur_optim = 'increase_frame_batch_amount'
-                settings.frame_batch_amount += 1
-
-
-            old_perf = (recpsec, procpsec)
-
-
-    logger.debug('Shutting down workers...')
+    logger.debug("Shutting down workers...")
     workers.extend(paused_workers)
     paused_workers = []
     for worker in workers:
@@ -699,14 +928,45 @@ def produce(frame_gen: fg.FrameGenerator, fps: float,
                     all_finished = False
                     break
 
-    logger.debug('All workers shut down, processing remaining frames...')
+    logger.debug("All workers shut down, processing remaining frames...")
     while isticher.next_frame < num_frames:
         if not isticher.do_work():
             time.sleep(0.001)
 
     isticher.finish()
     for worker in workers:
-        worker.check_sync() # just in case we leaked one
+        worker.check_sync()  # just in case we leaked one
         worker.close()
-    logger.info('Finished')
+    logger.info("Finished")
     return settings
+
+
+def test_leaks(
+    fg: fg.FrameGenerator,
+    at: typing.Union[int, float] = 0.0,
+) -> typing.Never:
+    """Starts the frame generator and repeatedly requests a frame from it, emitting
+    the RSS and VMS every 5s to help determine if the frame generator leaks memory.
+
+    Never returns - kill with ctrl+c
+    """
+
+    started_at = time.time()
+    last_time = started_at
+    my_process = psutil.Process()
+
+    num_times = 0
+
+    fg.start()
+    while True:
+        fg.generate_at(at)
+        frame_time = time.time()
+        num_times += 1
+        if frame_time - last_time > 5:
+            last_time = frame_time
+            process_mem = my_process.memory_info()
+            rss_bytes = typing.cast(int, process_mem.rss)
+            vms_bytes = typing.cast(int, process_mem.vms)
+            print(
+                f"Repeated {num_times}, been {frame_time - started_at:.1f}s for RSS: {_bytes_to_pretty(rss_bytes)}, VMS: {_bytes_to_pretty(vms_bytes)}"
+            )

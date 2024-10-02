@@ -15,14 +15,17 @@ from pympanim.easing import Easing
 import typing
 import PIL.Image
 
+
 class ActState:
     """The interface for things that can act as state in acts, which is shared
     amongst the scenes."""
+
     pass
 
+
 class ActRenderer:
-    """Something which is capable of rendering a particular act state subtype
-    """
+    """Something which is capable of rendering a particular act state subtype"""
+
     @property
     def frame_size(self) -> typing.Tuple[int, int]:
         """Returns the size in pixels that this renders the state at"""
@@ -32,19 +35,26 @@ class ActRenderer:
         """Renders the given act state to raw rgba bytes"""
         raise NotImplementedError
 
-    def render_pil(self, act_state: ActState) -> PIL.Image:
+    def render_pil(self, act_state: ActState) -> PIL.Image.Image:
         """Renders the given act state to a pillow image. If there are nested
         renderers which all use pillow images it will typically faster to use
         this chain then constantly converting to/from bytes. By default, this
         just wraps the result from render.
+
+        The caller is responsible for disposing the image when they are done with
+        it, typically using a context like
+
+        with renderer.render_pil(act_state) as img:
+            ...
         """
-        return PIL.Image.frombytes(
-            'RGBA', self.frame_size, self.render(act_state))
+        return PIL.Image.frombytes("RGBA", self.frame_size, self.render(act_state))
+
 
 class Scene:
     """Describes a scene in an act, which manipulates the state of the act rather
     than the image directly.
     """
+
     @property
     def duration(self) -> float:
         """Returns the number of milliseconds that this scene lasts for"""
@@ -72,6 +82,7 @@ class Scene:
         the act is about to render a different scene."""
         pass
 
+
 # wow, you're a real
 class Act(fgen.FrameGenerator):
     """Describes an act, which describes some state through an ActState that
@@ -88,12 +99,14 @@ class Act(fgen.FrameGenerator):
             going from a scene time to a scene.
         _last_scene (int, optional): the last scene that we rendered.
     """
-    def __init__(self, state: ActState, renderer: ActRenderer,
-                 scenes: typing.Tuple[Scene]):
+
+    def __init__(
+        self, state: ActState, renderer: ActRenderer, scenes: typing.Tuple[Scene]
+    ):
         tus.check(
             state=(state, ActState),
             renderer=(renderer, ActRenderer),
-            scenes=(scenes, (list, tuple))
+            scenes=(scenes, (list, tuple)),
         )
         tus.check_listlike(scenes=(scenes, Scene))
         self.state = state
@@ -130,8 +143,7 @@ class Act(fgen.FrameGenerator):
             (float): the time relative to the scene that the given time
                 corresponds to
         """
-        i, rtime = mutils.find_child(self.scenes_end_at, time_ms,
-                                     self._scene_hint)
+        i, rtime = mutils.find_child(self.scenes_end_at, time_ms, self._scene_hint)
         return i, self.scenes[i], rtime
 
     def setup_state(self, time_ms: float) -> None:
@@ -159,7 +171,7 @@ class Act(fgen.FrameGenerator):
         self.setup_state(time_ms)
         return self.renderer.render(self.state)
 
-    def generate_at_pil(self, time_ms: float) -> PIL.Image:
+    def generate_at_pil(self, time_ms: float) -> PIL.Image.Image:
         self.setup_state(time_ms)
         return self.renderer.render_pil(self.state)
 
@@ -167,6 +179,7 @@ class Act(fgen.FrameGenerator):
         if self._last_scene:
             self.scenes[self._last_scene].exit(self.state)
             self._last_scene = None
+
 
 class SceneSequenceScene(Scene):
     """Describes a single scene which is made up of several other scenes.
@@ -182,6 +195,7 @@ class SceneSequenceScene(Scene):
         _last_scene (int, optional): the last active scene, None if this
             sequence scene was not the last scene to be rendered.
     """
+
     def __init__(self, scenes: typing.Tuple[Scene]):
         tus.check(scenes=(scenes, (list, tuple)))
         tus.check_listlike(scenes=(scenes, Scene))
@@ -205,13 +219,14 @@ class SceneSequenceScene(Scene):
             scene.start(act_state)
 
     def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
-        ind, reltime = mutils.find_child(self.scenes_end_at, time_ms,
-                                         self._scene_hint)
+        ind, reltime = mutils.find_child(self.scenes_end_at, time_ms, self._scene_hint)
         self._scene_hint = ind
         scene = self.scenes[ind]
         if dbg:
-            print(f'sequence at time {time_ms} applying child {ind} '
-                  + f'at time {reltime}')
+            print(
+                f"sequence at time {time_ms} applying child {ind} "
+                + f"at time {reltime}"
+            )
 
         if ind != self._last_scene:
             if self._last_scene:
@@ -221,11 +236,11 @@ class SceneSequenceScene(Scene):
 
         scene.apply(act_state, reltime, dbg)
 
-
     def exit(self, act_state: ActState):
         if self._last_scene:
             self.scenes[self._last_scene].exit(act_state)
             self._last_scene = None
+
 
 class JoinedScene(Scene):
     """Describes multiple scenes which are applied at the same time in a
@@ -239,10 +254,9 @@ class JoinedScene(Scene):
             especially when you know that the children being joined do not
             interfere with each other.
     """
-    def __init__(self, children: typing.Tuple[Scene],
-                 sep_enters: bool) -> None:
-        tus.check(children=(children, (list, tuple)),
-                  sep_enters=(sep_enters, bool))
+
+    def __init__(self, children: typing.Tuple[Scene], sep_enters: bool) -> None:
+        tus.check(children=(children, (list, tuple)), sep_enters=(sep_enters, bool))
         tus.check_listlike(children=(children, Scene, (1, None)))
 
         duration = children[0].duration
@@ -250,8 +264,8 @@ class JoinedScene(Scene):
         for i, child in enumerate(children):
             if child.duration != duration:
                 raise ValueError(
-                    f'children[0].duration={duration}, but '
-                    + f'children[{i}].duration={child.duration}'
+                    f"children[0].duration={duration}, but "
+                    + f"children[{i}].duration={child.duration}"
                 )
 
         self.children = tuple(children)
@@ -275,8 +289,10 @@ class JoinedScene(Scene):
             if self.sep_enters:
                 child.enter(act_state)
             if dbg:
-                print(f'JoinedScene applying children[{i}]={type(child)} '
-                      + f'at time {time_ms}')
+                print(
+                    f"JoinedScene applying children[{i}]={type(child)} "
+                    + f"at time {time_ms}"
+                )
             child.apply(act_state, time_ms, dbg)
             if self.sep_enters:
                 child.exit(act_state)
@@ -285,6 +301,7 @@ class JoinedScene(Scene):
         if not self.sep_enters:
             for child in self.children:
                 child.exit(act_state)
+
 
 class TimeRescaleScene(Scene):
     """Describes a scene which is just another scene played back at a different
@@ -295,14 +312,11 @@ class TimeRescaleScene(Scene):
             child that corresponds to 1 second relative to us.
         child (Scene): the actual scene that is used
     """
+
     def __init__(self, child: Scene, playback_rate: float) -> None:
-        tus.check(
-            child=(child, Scene),
-            playback_rate=(playback_rate, (int, float))
-        )
+        tus.check(child=(child, Scene), playback_rate=(playback_rate, (int, float)))
         if playback_rate <= 0:
-            raise ValueError(
-                f'playback_rate={playback_rate} should be positive')
+            raise ValueError(f"playback_rate={playback_rate} should be positive")
 
         self.child = child
         self.playback_rate = playback_rate
@@ -320,11 +334,12 @@ class TimeRescaleScene(Scene):
     def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
         newtime = time_ms * self.playback_rate
         if dbg:
-            print(f'time rescale at {time_ms} applying child at {newtime}')
+            print(f"time rescale at {time_ms} applying child at {newtime}")
         self.child.apply(act_state, newtime, dbg)
 
     def exit(self, act_state: ActState):
         self.child.exit(act_state)
+
 
 class TimeRescaleExactDurationScene(Scene):
     """Acts very similarly to a time rescale scene except this has an exact
@@ -335,9 +350,9 @@ class TimeRescaleExactDurationScene(Scene):
         new_duration (float): the duration that we have
         child (Scene): the child scene whose duration is changed
     """
+
     def __init__(self, child: Scene, new_duration: float):
-        tus.check(child=(child, Scene),
-                  new_duration=(new_duration, (int, float)))
+        tus.check(child=(child, Scene), new_duration=(new_duration, (int, float)))
         self.new_duration = new_duration
         self.child = child
 
@@ -354,11 +369,12 @@ class TimeRescaleExactDurationScene(Scene):
     def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
         newtime = time_ms * (self.child.duration / self.new_duration)
         if dbg:
-            print(f'time dur. resc. at {time_ms} applying child at {newtime}')
+            print(f"time dur. resc. at {time_ms} applying child at {newtime}")
         self.child.apply(act_state, newtime, dbg)
 
     def exit(self, act_state: ActState):
         self.child.exit(act_state)
+
 
 class TimeReverseScene(Scene):
     """Reverses time for the given child scene.
@@ -366,6 +382,7 @@ class TimeReverseScene(Scene):
     Attributes:
         child (Scene): the actual child scene
     """
+
     def __init__(self, child: Scene) -> None:
         tus.check(child=(child, Scene))
         self.child = child
@@ -383,11 +400,12 @@ class TimeReverseScene(Scene):
     def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
         newtime = self.duration - time_ms
         if dbg:
-            print(f'time reverse at {time_ms} applying child at {newtime}')
+            print(f"time reverse at {time_ms} applying child at {newtime}")
         self.child.apply(act_state, newtime, dbg)
 
     def exit(self, act_state: ActState):
         self.child.exit(act_state)
+
 
 class TimeDilateScene(Scene):
     """Describes a scene which is another scene played for the same duration,
@@ -400,13 +418,14 @@ class TimeDilateScene(Scene):
         dilator_kwargs (dict): keyword arguments for the dilator
         child (Scene): the scene which is actually running
     """
+
     def __init__(self, child: Scene, dilator: Easing, dilator_kwargs: dict = None):
-        tus.check(child=(child, Scene),
-                  dilator_kwargs=(dilator_kwargs, (dict, type(None))))
+        tus.check(
+            child=(child, Scene), dilator_kwargs=(dilator_kwargs, (dict, type(None)))
+        )
         tus.check_callable(dilator=dilator)
         self.dilator = dilator
-        self.dilator_kwargs = (
-            dict() if dilator_kwargs is None else dilator_kwargs)
+        self.dilator_kwargs = dict() if dilator_kwargs is None else dilator_kwargs
         self.child = child
 
     @property
@@ -424,12 +443,15 @@ class TimeDilateScene(Scene):
         resc_perc_time = self.dilator(perc_time, **self.dilator_kwargs)
         resc_time = self.duration * resc_perc_time
         if dbg:
-            print(f'time dilate at {time_ms} (perc: {perc_time}) applying '
-                  + f'child at {resc_time} (perc: {resc_perc_time})')
+            print(
+                f"time dilate at {time_ms} (perc: {perc_time}) applying "
+                + f"child at {resc_time} (perc: {resc_perc_time})"
+            )
         self.child.apply(act_state, resc_time, dbg)
 
     def exit(self, act_state: ActState):
         self.child.exit(act_state)
+
 
 class CroppedScene(Scene):
     """Describes a scene which comes from taking only a segment of the child
@@ -442,23 +464,24 @@ class CroppedScene(Scene):
             ends at.
         child (Scene): the scene which is cropped
     """
+
     def __init__(self, child: Scene, crop_start: float, crop_end: float):
         tus.check(
             child=(child, Scene),
             crop_start=(crop_start, (int, float)),
-            crop_end=(crop_end, (int, float))
+            crop_end=(crop_end, (int, float)),
         )
         if crop_start < 0:
-            raise ValueError(f'crop_start={crop_start} should be positive')
+            raise ValueError(f"crop_start={crop_start} should be positive")
         if crop_end <= crop_start:
             raise ValueError(
-                f'crop_end - crop_start = {crop_end} - {crop_start} = '
-                + f'{crop_end - crop_start} should be positive'
+                f"crop_end - crop_start = {crop_end} - {crop_start} = "
+                + f"{crop_end - crop_start} should be positive"
             )
         if crop_end > child.duration:
             raise ValueError(
-                f'crop_end = {crop_end} should not exceed child.duration='
-                + f'{child.duration}'
+                f"crop_end = {crop_end} should not exceed child.duration="
+                + f"{child.duration}"
             )
         self.child = child
         self.crop_start = crop_start
@@ -477,11 +500,12 @@ class CroppedScene(Scene):
     def apply(self, act_state: ActState, time_ms: float, dbg: bool = False):
         newtime = time_ms + self.crop_start
         if dbg:
-            print(f'crop at {time_ms} applying child at {newtime}')
+            print(f"crop at {time_ms} applying child at {newtime}")
         self.child.apply(act_state, newtime, dbg)
 
     def exit(self, act_state: ActState):
         self.child.exit(act_state)
+
 
 class FluentScene:
     """Acts as a factory for scenes that are built in a fluent manner. For any
@@ -500,6 +524,7 @@ class FluentScene:
         pushed (list[FluentScene]): scenes which are currently not being modified
             by commands.
     """
+
     def __init__(self, base: Scene):
         tus.check(base=(base, Scene))
         self.base = base
@@ -515,8 +540,7 @@ class FluentScene:
             result += scene.duration
         return result
 
-    def apply(self, transform: typing.Callable, *args,
-              **kwargs) -> 'FluentScene':
+    def apply(self, transform: typing.Callable, *args, **kwargs) -> "FluentScene":
         """Applies the given transform to the current working scene. The
         transform should accept a Scene as its first argument, and then we
         pass it the specified arguments and keyword-arguments.
@@ -529,7 +553,7 @@ class FluentScene:
         self.joined_with = []
         return self
 
-    def then(self, scene: Scene) -> 'FluentScene':
+    def then(self, scene: Scene) -> "FluentScene":
         """Has the given scene follow the currently described scene"""
         tus.check(scene=(scene, Scene))
         if self.joined_with:
@@ -537,7 +561,7 @@ class FluentScene:
         self.followed_by.append(scene)
         return self
 
-    def push(self, scene: Scene) -> 'FluentScene':
+    def push(self, scene: Scene) -> "FluentScene":
         """Puts the currently generated scene into the background for now,
         meaning it will not be modified by future commands, and then begins
         the current state with the given scene.
@@ -564,7 +588,7 @@ class FluentScene:
         self.base = scene
         return self
 
-    def pop(self, style: str = 'then') -> 'FluentScene':
+    def pop(self, style: str = "then") -> "FluentScene":
         """The analogue to push. Causes future calls to also modify the
         last pushed scene.
         """
@@ -577,15 +601,17 @@ class FluentScene:
         self.followed_by = popped.followed_by
         self.joined_with = popped.joined_with
         self.join_is_sep = popped.join_is_sep
-        if style == 'then':
+        if style == "then":
             return self.then(cur)
-        if style == 'join':
+        if style == "join":
             return self.join(cur, False)
-        if style == 'join_sep':
+        if style == "join_sep":
             return self.join(cur, True)
-        raise ValueError(f'style={style} unsupported, should be then, join, or join_sep')
+        raise ValueError(
+            f"style={style} unsupported, should be then, join, or join_sep"
+        )
 
-    def join(self, scene: Scene, sep_enters: bool) -> 'FluentScene':
+    def join(self, scene: Scene, sep_enters: bool) -> "FluentScene":
         """Has the given scene apply at the same time as the current one.
 
         If sep_enters is true, the code path will be
@@ -606,29 +632,30 @@ class FluentScene:
             current.exit()
             scene.exit()
         """
-        if self.followed_by or (self.joined_with and
-                                sep_enters != self.join_is_sep):
+        if self.followed_by or (self.joined_with and sep_enters != self.join_is_sep):
             self.apply(lambda x: x)
         self.joined_with.append(scene)
         self.join_is_sep = sep_enters
         return self
 
-    def reverse(self) -> 'FluentScene':
+    def reverse(self) -> "FluentScene":
         """Causes the current segment to be played in reverse."""
         return self.apply(TimeReverseScene)
 
-    def crop(self, start: float, end: float, unit: str) -> 'FluentScene':
+    def crop(self, start: float, end: float, unit: str) -> "FluentScene":
         """Crops this scene to start and end in the specified times relative
         to the current scene, using the given unit. The unit should be 'ms',
         's', or any other key in pympanim.utils.UNITS_LOOKUP
         """
-        tus.check(start=(start, (int, float)),
-                  end=(end, (int, float)),
-                  unit=(unit, str))
+        tus.check(
+            start=(start, (int, float)), end=(end, (int, float)), unit=(unit, str)
+        )
 
         if unit not in mutils.UNITS_LOOKUP:
-            raise ValueError(f'unknown unit \'{unit}\'; should be one of '
-                             + str(list(mutils.UNITS_LOOKUP)))
+            raise ValueError(
+                f"unknown unit '{unit}'; should be one of "
+                + str(list(mutils.UNITS_LOOKUP))
+            )
 
         ms_per_unit = mutils.UNITS_LOOKUP[unit]
 
@@ -636,21 +663,21 @@ class FluentScene:
         real_end = end * ms_per_unit
         return self.apply(CroppedScene, real_start, real_end)
 
-    def dilate(self, dilator: Easing,
-               dilator_kwargs: typing.Optional[dict] = None) -> 'FluentScene':
+    def dilate(
+        self, dilator: Easing, dilator_kwargs: typing.Optional[dict] = None
+    ) -> "FluentScene":
         """Transforms time according to the given easing.
 
         Args:
             dilator (Easing): The rule for manipulating time
             dilator_kwargs (dict, optional): Arguments to the dilator.
         """
-        tus.check(
-            dilator_kwargs=(dilator_kwargs, (dict, type(None))))
+        tus.check(dilator_kwargs=(dilator_kwargs, (dict, type(None))))
         tus.check_callable(dilator=dilator)
 
         return self.apply(TimeDilateScene, dilator, dilator_kwargs)
 
-    def time_rescale(self, playback_rate: float) -> 'FluentScene':
+    def time_rescale(self, playback_rate: float) -> "FluentScene":
         """Changes the playback rate, e.g. 2 for the result to have half the
         duration.
 
@@ -661,7 +688,7 @@ class FluentScene:
         tus.check(playback_rate=(playback_rate, (int, float)))
         return self.apply(TimeRescaleScene, playback_rate)
 
-    def time_rescale_exact(self, new_duration: float, unit: str) -> 'FluentScene':
+    def time_rescale_exact(self, new_duration: float, unit: str) -> "FluentScene":
         """Similar to time_rescale except instead of specifying an exact
         playback rate, which can cause rounding issues on the new
         duration, you instead specify an exact new duration and accept some
@@ -671,16 +698,15 @@ class FluentScene:
             new_duration (float): the new duration in the given unit
             unit (str): one of 'ms', 's', 'min', 'hr'
         """
-        tus.check(
-            new_duration=(new_duration, (int, float)),
-            unit=(unit, str)
-        )
+        tus.check(new_duration=(new_duration, (int, float)), unit=(unit, str))
         if unit not in mutils.UNITS_LOOKUP:
-            raise ValueError(f'unknown unit \'{unit}\'; should be one of '
-                             + str(list(mutils.UNITS_LOOKUP)))
+            raise ValueError(
+                f"unknown unit '{unit}'; should be one of "
+                + str(list(mutils.UNITS_LOOKUP))
+            )
 
         ms_per_unit = mutils.UNITS_LOOKUP[unit]
-        return self.apply(TimeRescaleExactDurationScene, new_duration*ms_per_unit)
+        return self.apply(TimeRescaleExactDurationScene, new_duration * ms_per_unit)
 
     def build(self):
         """Builds the actual scene that has been created by this factory"""

@@ -1,5 +1,6 @@
 """This module stiches together encoded images using ffmpeg into videos.
 """
+
 import pytypeutils as tus
 import typing
 import os
@@ -7,6 +8,7 @@ import time
 from collections import deque
 
 import subprocess as sp
+
 
 class ImageSticherPerformanceHandler:
     """An object which is interested in the performance of an ImageSticher.
@@ -23,6 +25,7 @@ class ImageSticherPerformanceHandler:
             nooo (int): The number of frames waiting to be processed
         """
         raise NotImplementedError
+
 
 class ISRunningAveragePerfHandler(ImageSticherPerformanceHandler):
     """This maintains a running average over time for number of frames received
@@ -48,6 +51,7 @@ class ISRunningAveragePerfHandler(ImageSticherPerformanceHandler):
             this wasn't at least window_size away, then we dont have a full
             window of information available.
     """
+
     def __init__(self, window_size: float):
         tus.check(window_size=(window_size, (int, float)))
 
@@ -80,9 +84,8 @@ class ISRunningAveragePerfHandler(ImageSticherPerformanceHandler):
     def have_window(self) -> bool:
         """Returns True if we have a full window of information available,
         False otherwise"""
-        return (
-            self._first_enc_at is not None
-            and (time.time() > self._first_enc_at + self.window_size)
+        return self._first_enc_at is not None and (
+            time.time() > self._first_enc_at + self.window_size
         )
 
     def mean(self) -> typing.Tuple[float, float]:
@@ -92,7 +95,7 @@ class ISRunningAveragePerfHandler(ImageSticherPerformanceHandler):
         self.clean_window()
         return (
             (self.sum_frames_rec / self.window_size),
-            (self.sum_frames_proc / self.window_size)
+            (self.sum_frames_proc / self.window_size),
         )
 
     def post_work(self, frames_rec: int, frames_proc: int, nooo: int):
@@ -146,25 +149,32 @@ class ImageSticher:
             a time, at most. Greatly impacts performance.
     """
 
-    def __init__(self, frame_size: typing.Tuple[int, int],
-                 dpi: typing.Union[int, float], bitrate: int,
-                 fps: int, outfile: str,
-                 max_ooo_frames: int = 5000,
-                 block_size: int = 4048) -> None:
+    def __init__(
+        self,
+        frame_size: typing.Tuple[int, int],
+        dpi: typing.Union[int, float],
+        bitrate: int,
+        fps: int,
+        outfile: str,
+        max_ooo_frames: int = 5000,
+        block_size: int = 4048,
+    ) -> None:
         tus.check(
             frame_size=(frame_size, (list, tuple)),
-            dpi=(dpi, (int, float)), bitrate=(bitrate, int),
-            fps=(fps, int), outfile=(outfile, str),
+            dpi=(dpi, (int, float)),
+            bitrate=(bitrate, int),
+            fps=(fps, int),
+            outfile=(outfile, str),
             max_ooo_frames=(max_ooo_frames, (int, float)),
-            block_size=(block_size, int)
+            block_size=(block_size, int),
         )
         tus.check_listlike(frame_size=(frame_size, (int, float), 2))
 
         wo_ext, ext = os.path.splitext(outfile)
-        if ext == '':
-            outfile = wo_ext + '.mp4'
-        elif ext != '.mp4':
-            raise NotImplementedError(f'only mp4 encoding is supported, but got {ext}')
+        if ext == "":
+            outfile = wo_ext + ".mp4"
+        elif ext != ".mp4":
+            raise NotImplementedError(f"only mp4 encoding is supported, but got {ext}")
 
         if os.path.exists(outfile):
             raise FileExistsError(outfile)
@@ -185,24 +195,48 @@ class ImageSticher:
     def _spawn_ffmpeg(self) -> None:
         """Spawns the ffmpeg process"""
         if self.ffmpeg_proc is not None:
-            raise RuntimeError('_spawn_ffmpeg called when ffmpeg_proc is '
-                               + f'{self.ffmpeg_proc} (not None)')
+            raise RuntimeError(
+                "_spawn_ffmpeg called when ffmpeg_proc is "
+                + f"{self.ffmpeg_proc} (not None)"
+            )
 
-        args = ['ffmpeg', '-f', 'rawvideo', '-vcodec', 'rawvideo',
-                '-s', f'{self.frame_size[0]}x{self.frame_size[1]}',
-                '-pix_fmt', 'rgba', '-r', str(self.fps),
-                '-loglevel', 'quiet',
-                '-i', 'pipe:0',
-                '-vcodec', 'h264', '-pix_fmt', 'yuv420p',
-                '-movflags', '+faststart']
+        args = [
+            "ffmpeg",
+            "-f",
+            "rawvideo",
+            "-vcodec",
+            "rawvideo",
+            "-s",
+            f"{self.frame_size[0]}x{self.frame_size[1]}",
+            "-pix_fmt",
+            "rgba",
+            "-r",
+            str(self.fps),
+            "-loglevel",
+            "quiet",
+            "-i",
+            "pipe:0",
+            "-vcodec",
+            "h264",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+        ]
 
         if self.bitrate > 0:
-            args.extend(['-b', f'{self.bitrate}k'])
-        args.extend(['-y', self.outfile])
+            args.extend(["-b", f"{self.bitrate}k"])
+        args.extend(["-y", self.outfile])
 
-        create_flags = sp.CREATE_NO_WINDOW if 'nt' in os.name else 0
-        self.ffmpeg_proc = sp.Popen(args, shell=False, stdout=None, stderr=None,
-                                    stdin=sp.PIPE, creationflags=create_flags)
+        create_flags = sp.CREATE_NO_WINDOW if "nt" in os.name else 0
+        self.ffmpeg_proc = sp.Popen(
+            args,
+            shell=False,
+            stdout=None,
+            stderr=None,
+            stdin=sp.PIPE,
+            creationflags=create_flags,
+        )
 
     def _cleanup_ffmpeg(self) -> None:
         """Cleans up the ffmpeg process. This will wait for it to terminate"""
@@ -218,18 +252,38 @@ class ImageSticher:
         """Registers the specified queue-like object as something frames can
         be received from. Must have a get_nowait and empty member."""
         if queue is None:
-            raise ValueError('queue is None')
-        if not hasattr(queue, 'empty'):
-            raise ValueError(f'queue {queue} is missing empty member')
-        if not hasattr(queue, 'get_nowait'):
-            raise ValueError(f'queue {queue} is missing get_nowait member')
+            raise ValueError("queue is None")
+        if not hasattr(queue, "empty"):
+            raise ValueError(f"queue {queue} is missing empty member")
+        if not hasattr(queue, "get_nowait"):
+            raise ValueError(f"queue {queue} is missing get_nowait member")
         self.receive_queues.append(queue)
 
     def remove_queue(self, queue) -> None:
         """Removes the given queue-like object from this. Uses the same
         comparison as list.remove. Raises ValueError if the queue is not
         currently being used to fetch frames."""
+        while not queue.empty():
+            frame, img_bytes = queue.get_nowait()
+            self._on_receive_queue_message(frame, img_bytes)
         self.receive_queues.remove(queue)
+
+    def _on_receive_queue_message(self, frame: int, img_bytes: bytes) -> None:
+        """Processes that we received the given frame with the given image representation"""
+        if frame < self.next_frame:
+            raise ValueError(
+                "received frame we already processed! "
+                + f"got {frame}, at {self.next_frame}"
+            )
+        if frame in self.ooo_frames:
+            raise ValueError(f"received duplicate frame: {frame}")
+
+        self.ooo_frames[frame] = img_bytes
+        if len(self.ooo_frames) > self.max_ooo_frames:
+            raise ValueError(
+                "exceeded maximum frame cache (now have "
+                + f"{len(self.ooo_frames)} frames waiting)"
+            )
 
     def check_queues(self) -> int:
         """Checks for items from each of the receive queues and pushes them
@@ -241,17 +295,7 @@ class ImageSticher:
             if not queue.empty():
                 nframes += 1
                 frame, img_bytes = queue.get_nowait()
-
-                if frame < self.next_frame:
-                    raise ValueError('received frame we already processed! '
-                                     + f'got {frame}, at {self.next_frame}')
-                if frame in self.ooo_frames:
-                    raise ValueError(f'received duplicate frame: {frame}')
-
-                self.ooo_frames[frame] = img_bytes
-                if len(self.ooo_frames) > self.max_ooo_frames:
-                    raise ValueError('exceeded maximum frame cache (now have '
-                                     + f'{len(self.ooo_frames)} frames waiting)')
+                self._on_receive_queue_message(frame, img_bytes)
 
         return nframes
 
@@ -265,7 +309,8 @@ class ImageSticher:
 
         for kb_start in range(0, len(img_bytes), self.block_size):
             self.ffmpeg_proc.stdin.write(
-                img_bytes[kb_start:kb_start + self.block_size])
+                img_bytes[kb_start : kb_start + self.block_size]
+            )
 
         self.next_frame += 1
         return True
